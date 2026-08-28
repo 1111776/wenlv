@@ -62,9 +62,21 @@ async def report_node(state: TravelState) -> dict:
             except Exception as exc:
                 logger.warning("天气获取失败：%s", exc)
 
+        # 生成虚拟酒店房价（真实酒店 POI 名 + 虚拟价格）
+        hotels_data: list[dict] = []
+        days = int((plan.preferences or {}).get("days") or 7)
+        try:
+            from app.agents.hotel_pricing import generate_hotels
+
+            # 收集高德搜到的真实酒店 POI 名
+            hotel_names = await _collect_hotel_names(plan_id, ctx)
+            hotels_data = generate_hotels(destination, hotel_names, max(days - 1, 1))
+        except Exception as exc:
+            logger.warning("酒店房价生成失败：%s", exc)
+
         # 生成报告 markdown
         markdown = _build_report_markdown(
-            plan, budget_items, itinerary, degraded, weather_now_data, weather_forecast_data
+            plan, budget_items, itinerary, degraded, weather_now_data, weather_forecast_data, hotels_data
         )
 
         # 写 report.md
@@ -121,6 +133,24 @@ async def _load_itinerary(plan_id: str, ctx: NodeContext) -> dict | None:
     return None
 
 
+async def _collect_hotel_names(plan_id: str, ctx: NodeContext) -> list[str]:
+    """从 web_research 任务结果里收集真实酒店 POI 名（keyword=酒店）。"""
+    from app.models import AgentTask as AT
+
+    result = await ctx.db.execute(
+        select(AT).where(AT.plan_id == uuid.UUID(plan_id), AT.agent_type == "web_research")
+    )
+    names: list[str] = []
+    for t in result.scalars().all():
+        if not t.result:
+            continue
+        if t.result.get("keyword") == "酒店" or "酒店" in str(t.result.get("keyword", "")):
+            for p in t.result.get("pois", []):
+                if p.get("name"):
+                    names.append(p["name"])
+    return names[:3]  # 取前 3 个真实酒店名
+
+
 def _route_str(route: dict | None) -> str:
     """格式化路线数据（距离/耗时）。"""
     if not route:
@@ -130,6 +160,16 @@ def _route_str(route: dict | None) -> str:
     return f"{dist_km:.1f}km / {dur_min}分钟"
 
 
+_CN_NUM = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
+
+
+def _sec(n: int) -> str:
+    """把数字章节号转中文（1→一，2→二，...）。"""
+    if 1 <= n <= len(_CN_NUM):
+        return _CN_NUM[n - 1]
+    return str(n)
+
+
 def _build_report_markdown(
     plan: TravelPlan,
     budget_items: list[BudgetRecord],
@@ -137,6 +177,7 @@ def _build_report_markdown(
     degraded: bool,
     weather_now: dict | None = None,
     weather_forecast: list[dict] | None = None,
+    hotels: list[dict] | None = None,
 ) -> str:
     """生成完整报告正文。"""
     prefs = plan.preferences or {}
@@ -195,25 +236,26 @@ def _build_report_markdown(
                 lines.append("> ☀️ 未来几日天气晴好，适合出行。")
             lines.append("")
 
-    # 章节号动态：有天气时多一节
-    has_weather = bool(weather_now or weather_forecast)
-    sec_route = "三" if has_weather else "二"
-    sec_daily = "四" if has_weather else "三"
-    sec_budget = "五" if has_weather else "四"
-    sec_tips = "六" if has_weather else "五"
+    # 章节号递增计数器（一=概览 已写，从「二」开始）
+    sec = 2
 
-    # 路线串联
+    # 天气章节（已在上方输出，若存在）
+    if weather_now or weather_forecast:
+        sec += 1
+
+    # 推荐路线
     if itinerary and itinerary.get("route"):
-        lines.append(f"## {sec_route}、推荐路线")
+        lines.append(f"## {_sec(sec)}、推荐路线")
         lines.append("")
         lines.append(f"```")
         lines.append(f"{itinerary['route']}")
         lines.append(f"```")
         lines.append("")
+        sec += 1
 
     # 每日行程单
     if itinerary and itinerary.get("daily_plan"):
-        lines.append(f"## {sec_daily}、每日行程计划（高德真实数据）")
+        lines.append(f"## {_sec(sec)}、每日行程计划（高德真实数据）")
         lines.append("")
         for day in itinerary["daily_plan"]:
             lines.append(f"### 第 {day['day']} 天")
@@ -227,19 +269,32 @@ def _build_report_markdown(
             lines.append(f"| ☀️ 下午 | **{a.get('spot','-')}** | {a.get('address','')} | {_route_str(a.get('route'))} |")
             lines.append(f"| 🌙 晚上 | **{e.get('spot','-')}** | {e.get('address','')} | — |")
             lines.append("")
+        sec += 1
     else:
-        lines.append(f"## {sec_daily}、每日行程计划")
+        lines.append(f"## {_sec(sec)}、每日行程计划")
         lines.append("")
         lines.append("（行程计划生成中，请稍后刷新）")
         lines.append("")
+        sec += 1
 
-    # 数据来源说明
-    if itinerary and itinerary.get("data_source") == "amap":
-        lines.append("> 本行程的景点、地址、路线与天气均由高德地图 API 实时生成。")
+    # 酒店推荐（虚拟房价）
+    if hotels:
+        lines.append(f"## {_sec(sec)}、酒店推荐（估算价格）")
         lines.append("")
+        lines.append("| 酒店 | 档位 | 房型 | 单价/晚 | 评分 | 合计 |")
+        lines.append("| --- | --- | --- | --- | --- | --- |")
+        for h in hotels:
+            lines.append(
+                f"| {h['name']} | {h['tier_label']} | {h['room_type']} | "
+                f"¥{h['price_per_night']} | {h['rating']} | ¥{h['total_price']} |"
+            )
+        lines.append("")
+        lines.append("> 注：酒店名来自高德真实 POI，房价为估算值（参考城市等级生成）。")
+        lines.append("")
+        sec += 1
 
     # 预算明细
-    lines.append(f"## {sec_budget}、预算明细")
+    lines.append(f"## {_sec(sec)}、预算明细")
     lines.append("")
     lines.append("| 类别 | 项目 | 金额 |")
     lines.append("| --- | --- | --- |")
@@ -248,12 +303,14 @@ def _build_report_markdown(
     total = sum(float(b.amount) for b in budget_items)
     lines.append(f"| **合计** | | **¥{total:,.0f}** |")
     lines.append("")
+    sec += 1
 
     # 数据来源与提示
-    lines.append(f"## {sec_tips}、数据来源与温馨提示")
+    lines.append(f"## {_sec(sec)}、数据来源与温馨提示")
     lines.append("")
     lines.append("- 本报告由 8 个 AI Agent 协作生成：偏好解析 → 任务拆解 → 网页调研 → 舆情评估 → 日程编排 → 预算计算。")
     lines.append("- 景点/路线/天气数据均来自高德地图 API（真实数据）。")
+    lines.append("- 酒店房价为估算值（真实房价 API 未接入）。")
     lines.append("- 出行前请再次确认景点开放时间、天气与交通状况。")
     lines.append("")
     lines.append(f"---")

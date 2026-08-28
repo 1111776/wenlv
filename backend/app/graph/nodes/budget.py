@@ -2,12 +2,14 @@
 
 分项金额写入 budget_records 与文件预算表；汇总后与用户预算比较，
 返回 over_budget_ratio（供条件边判定 HITL）。
+酒店住宿用虚拟房价（按目的地城市等级 + 天数），非写死 500/晚。
 """
 
 from __future__ import annotations
 
 import uuid
 
+from app.agents.hotel_pricing import hotel_total
 from app.agents.llm import build_system_prompt, get_llm
 from app.core.config import settings
 from app.core.database import session_scope
@@ -19,11 +21,14 @@ from app.models.agent_task import TASK_STATUS
 logger = get_logger(__name__)
 
 
-def _build_budget_items(days: int) -> list[dict]:
-    """确定性预算项（Mock）。"""
+def _build_budget_items(destination: str, days: int) -> list[dict]:
+    """确定性预算项（酒店用虚拟房价，其余固定）。"""
+    hotel_nights = max(days - 1, 1)  # 住宿晚数 = 天数 - 1（N 天住 N-1 晚）
+    hotel_cost = hotel_total(destination, hotel_nights)
+
     return [
         {"category": "traffic", "item": "往返交通", "amount": 2000},
-        {"category": "hotel", "item": f"住宿 {days} 晚", "amount": 500 * days},
+        {"category": "hotel", "item": f"住宿 {hotel_nights} 晚", "amount": hotel_cost},
         {"category": "ticket", "item": "景点门票", "amount": 150 * days},
         {"category": "food", "item": "餐饮", "amount": 200 * days},
         {"category": "other", "item": "其他", "amount": 300},
@@ -35,9 +40,10 @@ async def budget_node(state: TravelState) -> dict:
     plan_id = state["plan_id"]
     preferences = state.get("preferences", {})
     days = preferences.get("days", 7)
+    destination = preferences.get("destination") or "目的地"
     budget_limit = preferences.get("budget_limit") or 15000
 
-    items = _build_budget_items(days)
+    items = _build_budget_items(destination, days)
     total = sum(i["amount"] for i in items)
     over_ratio = (total - budget_limit) / budget_limit if budget_limit else 0.0
 
