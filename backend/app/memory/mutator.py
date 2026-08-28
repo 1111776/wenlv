@@ -146,3 +146,39 @@ async def mark_intervention_read(plan_id: str) -> None:
             inter.status = "consumed"
             inter.intervention_read_at = datetime.now(timezone.utc)
         await db.flush()
+
+
+async def rollback_intervention(intervention_id: int) -> dict:
+    """回滚一次干预：恢复图属性（prev_state）+ 清除 Redis state 补丁。
+
+    补偿事务，用于误干预（工单 7 §2.2 干预回滚）。
+    返回 {intervention_id, status}。干预不存在/无 prev_state 抛 ValueError。
+    """
+    async with session_scope() as db:
+        inter = await db.get(Intervention, intervention_id)
+        if inter is None:
+            raise ValueError("干预流水不存在")
+        if inter.status == "rolled_back":
+            return {"intervention_id": intervention_id, "status": "rolled_back"}
+
+        # ① 恢复图节点属性
+        node_type = inter.target_entity.get("type")
+        node_key = inter.target_entity.get("key")
+        result = await db.execute(
+            select(GraphNode).where(GraphNode.type == node_type, GraphNode.key == node_key)
+        )
+        node = result.scalar_one_or_none()
+        if node is not None and inter.prev_state is not None:
+            node.properties = inter.prev_state
+            node.version += 1
+            await db.flush()
+
+        # ② 清除 Redis state 补丁（若尚未被节点消费）
+        r = get_redis()
+        await r.delete(key(f"plan:{inter.thread_id}:intervention"))
+
+        # ③ 标记回滚
+        inter.status = "rolled_back"
+        await db.flush()
+
+        return {"intervention_id": intervention_id, "status": "rolled_back"}

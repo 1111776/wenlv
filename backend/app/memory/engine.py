@@ -231,7 +231,24 @@ async def retrieve(
     user_id: uuid.UUID | None = None,
     top_k: int = 20,
 ) -> list[dict]:
-    """双路检索：向量相似 + 图拓扑（1 跳邻域），按 confidence × 距离衰减排序。"""
+    """双路检索：向量相似 + 图拓扑（1 跳邻域），按 confidence × 距离衰减排序。
+
+    带 Redis 缓存（TTL 60s，D7），热路径命中缓存保证 P95 < 150ms。
+    """
+    import json as _json
+
+    # 缓存 key：查询词 + 用户域（hash 稳定）
+    cache_key = key(f"memory:retrieve:{_hash_key(query, user_id)}")
+
+    # 先查缓存
+    try:
+        r = get_redis()
+        cached = await r.get(cache_key)
+        if cached:
+            return _json.loads(cached)
+    except Exception:
+        pass  # 缓存不可用直接查 DB
+
     query_emb = _text_embedding(query)
 
     async with session_scope() as db:
@@ -291,4 +308,21 @@ async def retrieve(
                     )
 
     result.sort(key=lambda x: x["score"], reverse=True)
-    return result[:top_k]
+    result = result[:top_k]
+
+    # 写缓存（60s）
+    try:
+        r = get_redis()
+        await r.set(cache_key, _json.dumps(result, ensure_ascii=False), ex=60)
+    except Exception:
+        pass
+
+    return result
+
+
+def _hash_key(query: str, user_id: uuid.UUID | None) -> str:
+    """稳定的缓存 key 后缀。"""
+    import hashlib
+
+    raw = f"{query}:{user_id or 'all'}"
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()

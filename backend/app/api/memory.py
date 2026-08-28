@@ -68,30 +68,17 @@ async def intervene(
 
 @router.post("/intervene/{intervention_id}/rollback")
 async def rollback(intervention_id: int, request: Request, db: AsyncSession = Depends(get_db)):
-    """回滚图属性（按流水 prev_state 恢复）。"""
+    """回滚干预：恢复图属性 + 清除 state 补丁（按流水 prev_state 恢复）。"""
     if request.state.user["role"] != "supervisor":
         raise Err.FORBIDDEN.to_http()
 
-    inter = await db.get(Intervention, intervention_id)
-    if inter is None:
+    try:
+        result = await mutator.rollback_intervention(intervention_id)
+    except ValueError:
         raise Err.NOT_FOUND.to_http()
-    if inter.prev_state is None:
-        raise Err.BAD_STATE.to_http()
 
-    # 恢复图节点属性
-    node_type = inter.target_entity.get("type")
-    node_key = inter.target_entity.get("key")
-    result = await db.execute(
-        select(GraphNode).where(GraphNode.type == node_type, GraphNode.key == node_key)
-    )
-    node = result.scalar_one_or_none()
-    if node is not None:
-        node.properties = inter.prev_state
-        node.version += 1
-
-    inter.status = "rolled_back"
-    await db.flush()
-    return ok({"intervention_id": intervention_id, "status": "rolled_back"})
+    await add_audit(db, action="state_rollback", actor_id=request.state.user["id"], detail={"intervention_id": intervention_id})
+    return ok(result)
 
 
 @router.get("/graph")
