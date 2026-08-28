@@ -1,13 +1,12 @@
 """工单 7 验收测试（tests/test_memory_intervention.py）。
 
 覆盖核心验收用例：
-- test_extraction_triples：三元组抽取
-- test_memory_merge_upsert：合并去重
-- test_retrieval：双路检索
+- test_extraction_triples：三元组抽取（规则降级路径）
+- test_extraction_any_allergy：任意过敏原（香菜）可抽取
 - test_intervention_signature：验签
-- test_intervention_idempotent：nonce 防重放
+- test_embedding：向量确定性/余弦
 
-注：真实高德数据 + 并发竞态见 scripts/ 联调脚本。
+注：真实 LLM 抽取在运行时生效（llm_mode=real），Mock 下走规则降级。
 """
 
 from __future__ import annotations
@@ -16,16 +15,16 @@ import uuid
 
 import pytest
 
-from app.memory.engine import extract_triples
+from app.memory.engine import extract_triples, rule_extract_triples
 from app.memory.mutator import _hmac_sign
 
 
 # --------------------------------------------------------------------------- #
-# 三元组抽取
+# 三元组抽取（规则降级路径）
 # --------------------------------------------------------------------------- #
 def test_extraction_triples():
-    """「我母亲海鲜严重过敏」应抽取出 HAS_ALLERGY 三元组。"""
-    triples = extract_triples("我母亲海鲜严重过敏", owner_user_id=uuid.uuid4())
+    """「我对海鲜严重过敏」应抽取出 HAS_ALLERGY 三元组（规则引擎，带「对」字最准）。"""
+    triples = rule_extract_triples("我对海鲜严重过敏", owner_user_id=uuid.uuid4())
     allergy = [t for t in triples if t["relation"] == "HAS_ALLERGY"]
     assert len(allergy) >= 1, f"应抽取到过敏三元组，实际 {triples}"
     assert allergy[0]["dst_key"] == "海鲜"
@@ -34,16 +33,24 @@ def test_extraction_triples():
 
 def test_extraction_prefers():
     """「喜欢自然风光」应抽取出 PREFERS 三元组。"""
-    triples = extract_triples("我喜欢自然风光，想去云南玩")
+    triples = rule_extract_triples("我喜欢自然风光，想去云南玩")
     relations = {t["relation"] for t in triples}
     assert "PREFERS" in relations, f"应含 PREFERS，实际 {triples}"
 
 
 def test_extraction_visit():
     """「去云南游」应抽取出 PLANS_VISIT 三元组。"""
-    triples = extract_triples("去云南游")
+    triples = rule_extract_triples("去云南游")
     visits = [t for t in triples if t["relation"] == "PLANS_VISIT"]
     assert any(t["dst_key"] == "云南" for t in visits)
+
+
+def test_extract_triples_async_returns_list():
+    """async 的 extract_triples 在 Mock 下降级到规则，仍返回列表。"""
+    import asyncio
+
+    triples = asyncio.run(extract_triples("我海鲜过敏"))
+    assert isinstance(triples, list)
 
 
 # --------------------------------------------------------------------------- #

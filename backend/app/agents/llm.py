@@ -161,6 +161,12 @@ class OpenAICompatProvider:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+        # 百炼要求：用 json_object 时 messages 里必须出现 "json" 字样
+        if schema is not None:
+            messages = list(messages) + [
+                {"role": "user", "content": "请严格按照 JSON 格式输出结果。"}
+            ]
+
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,

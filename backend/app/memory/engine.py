@@ -11,6 +11,7 @@ Schema 三类（D3）：chat_memory / domain_wiki / code_graph。
 
 from __future__ import annotations
 
+import json as _json
 import re
 import uuid
 
@@ -28,9 +29,15 @@ logger = get_logger(__name__)
 # --------------------------------------------------------------------------- #
 
 # 关系模式：(正则, relation, src_type, dst_type, node_class)
+# 过敏原用通用名词匹配（不限白名单），支持香菜/花粉/青霉素等任意过敏原
+# 优先「对X过敏」结构（X 紧邻「过敏」，最准），兜底「X过敏」（取过敏前 1-3 字）
 _EXTRACTION_RULES: list[tuple[re.Pattern, str, str, str, str]] = [
-    # 过敏约束：我/母亲/家人 ... 海鲜/花生 ... 过敏
-    (re.compile(r"(\w{1,8}?)(?:对|吃)?(海鲜|花生|牛奶|芒果|鸡蛋|坚果|酒精)\s*(?:严重)?过敏"), "HAS_ALLERGY", "User", "Food", "chat_memory"),
+    # 过敏约束一：对XX过敏（最准）
+    (re.compile(r"对([一-龥A-Za-z]{1,6}?)(?:严重)?过敏"), "HAS_ALLERGY", "User", "Food", "chat_memory"),
+    # 过敏约束二：XX严重过敏（严重前是过敏原）
+    (re.compile(r"([一-龥A-Za-z]{1,6}?)(?:严重)过敏"), "HAS_ALLERGY", "User", "Food", "chat_memory"),
+    # 过敏约束三：XX过敏（兜底，取过敏前 1-3 字，避免主语粘连）
+    (re.compile(r"([一-龥A-Za-z]{1,3})过敏"), "HAS_ALLERGY", "User", "Food", "chat_memory"),
     # 偏好：喜欢/偏好/偏 ...
     (re.compile(r"(?:喜欢|偏好|偏爱|想|要)\s*([一-龥\w]{1,12}?)(?:游|玩|吃|逛|去|住|看|体验|风光|美食)"), "PREFERS", "User", "Preference", "chat_memory"),
     # 目的地：去 X 游 / X 之游
@@ -40,18 +47,23 @@ _EXTRACTION_RULES: list[tuple[re.Pattern, str, str, str, str]] = [
 ]
 
 
-def extract_triples(text: str, owner_user_id: uuid.UUID | None = None) -> list[dict]:
-    """从文本抽取三元组列表，返回 [{src_type,src_key,dst_type,dst_key,relation,node_class,properties}]。"""
+def rule_extract_triples(text: str, owner_user_id: uuid.UUID | None = None) -> list[dict]:
+    """规则抽取（确定性降级，识别常见过敏/偏好/目的地）。"""
     triples: list[dict] = []
     if not text:
         return triples
 
+    allergy_found = False  # 一个文本只保留第一个过敏原（多条过敏规则去重）
+
     for pattern, relation, src_type, dst_type, node_class in _EXTRACTION_RULES:
         for m in pattern.finditer(text):
             if relation == "HAS_ALLERGY":
-                src_key = m.group(1) or "user"
-                dst_key = m.group(2)
+                if allergy_found:
+                    continue  # 已有过敏三元组，跳过重复
+                src_key = "user"
+                dst_key = m.group(1)
                 props = {"severity": "severe" if "严重" in text[m.start():m.end() + 10] else "normal"}
+                allergy_found = True
             elif relation == "PREFERS":
                 src_key = "user"
                 dst_key = m.group(1)
@@ -79,6 +91,108 @@ def extract_triples(text: str, owner_user_id: uuid.UUID | None = None) -> list[d
                 }
             )
     return triples
+
+
+# LLM 抽取的 JSON Schema（要求模型返回三元组列表）
+_EXTRACT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "triples": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "src_type": {"type": "string"},
+                    "src_key": {"type": "string"},
+                    "dst_type": {"type": "string"},
+                    "dst_key": {"type": "string"},
+                    "relation": {"type": "string"},
+                    "node_class": {"type": "string", "enum": ["chat_memory", "domain_wiki", "code_graph"]},
+                    "properties": {"type": "object"},
+                },
+                "required": ["src_type", "src_key", "dst_type", "dst_key", "relation", "node_class"],
+            },
+        }
+    },
+    "required": ["triples"],
+}
+
+
+async def _llm_extract_triples(text: str, owner_user_id: uuid.UUID | None = None) -> list[dict]:
+    """用真实 LLM 抽取三元组（支持任意过敏/偏好，不限白名单）。
+
+    返回标准化的三元组列表；LLM 失败或返回空时返回 []（由调用方降级到规则）。
+    """
+    from app.agents.llm import build_system_prompt, get_llm
+
+    llm = get_llm()
+    # 若是 Mock（llm_mode != real 或未配置），直接返回空 → 走规则降级
+    from app.core.config import settings
+
+    if settings.llm_mode != "real":
+        return []
+
+    prompt = (
+        "从下面的旅行需求文本中抽取知识三元组，用于构建用户长期记忆图谱。\n"
+        "请严格按以下 JSON 格式输出，字段名必须完全一致：\n"
+        '{"triples": [{"src_type": "User", "src_key": "用户", "dst_type": "Food", "dst_key": "香菜", "relation": "HAS_ALLERGY", "node_class": "chat_memory", "properties": {"severity": "severe"}}]}\n'
+        "关系类型（relation）可选：HAS_ALLERGY(过敏)、PREFERS(偏好)、PLANS_VISIT(计划去)、LOCATED_IN(位于)、HATES(厌恶)、LIKES(喜欢)。\n"
+        "node_class 用 chat_memory（个人偏好/约束）或 domain_wiki（领域实体）。\n"
+        "注意：过敏原可以是任意食物或物质（如香菜、花粉、青霉素、尘螨），不要限定范围。\n"
+        "src_key 填具体的人/主体名，dst_key 填具体实体名。"
+    )
+    try:
+        result = await llm.complete(
+            [
+                {"role": "system", "content": build_system_prompt("memory_extract", prompt)},
+                {"role": "user", "content": text},
+            ],
+            schema=_EXTRACT_SCHEMA,
+        )
+    except Exception as exc:
+        logger.warning("LLM 抽取失败，降级规则：%s", exc)
+        return []
+
+    structured = result.structured
+    if not isinstance(structured, dict):
+        return []
+
+    triples = structured.get("triples") or []
+    # 规范化 + 过滤非法项
+    clean: list[dict] = []
+    for t in triples:
+        if not isinstance(t, dict):
+            continue
+        if not all(k in t for k in ("src_type", "src_key", "dst_type", "dst_key", "relation")):
+            continue
+        clean.append(
+            {
+                "src_type": str(t["src_type"]),
+                "src_key": str(t["src_key"]),
+                "dst_type": str(t["dst_type"]),
+                "dst_key": str(t["dst_key"]),
+                "relation": str(t["relation"]),
+                "node_class": t.get("node_class", "chat_memory"),
+                "properties": t.get("properties") or {},
+            }
+        )
+    return clean
+
+
+async def extract_triples(text: str, owner_user_id: uuid.UUID | None = None) -> list[dict]:
+    """抽取三元组：优先真 LLM，失败/空则降级到规则引擎。
+
+    返回 [{src_type,src_key,dst_type,dst_key,relation,node_class,properties}]。
+    """
+    if not text:
+        return []
+
+    llm_triples = await _llm_extract_triples(text, owner_user_id)
+    if llm_triples:
+        return llm_triples
+
+    # 降级：规则引擎
+    return rule_extract_triples(text, owner_user_id)
 
 
 def _text_embedding(text: str, dim: int = 64) -> list[float]:
@@ -180,7 +294,7 @@ async def extract_and_store(
     owner_user_id: uuid.UUID | None = None,
 ) -> int:
     """抽取三元组并持久化，返回成功写入的三元组数量。失败不抛（降级）。"""
-    triples = extract_triples(text, owner_user_id)
+    triples = await extract_triples(text, owner_user_id)
     if not triples:
         return 0
 
