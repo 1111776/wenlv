@@ -1,0 +1,42 @@
+{
+  "title": "文旅多Agent系统监控",
+  "uid": "wenlv",
+  "panels": [
+    {
+      "title": "HTTP 请求延迟 (P95)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(wenlv_http_latency_seconds_bucket[1m])) by (le))"
+        }
+      ]
+    },
+    {
+      "title": "HTTP 请求数",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(wenlv_http_requests_total[1m])) by (endpoint)"
+        }
+      ]
+    },
+    {
+      "title": "注入拦截次数",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(wenlv_injection_block_total)"
+        }
+      ]
+    },
+    {
+      "title": "恢复次数",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(wenlv_recover_total)"
+        }
+      ]
+    }
+  ]
+}

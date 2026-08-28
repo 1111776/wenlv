@@ -1,0 +1,10 @@
+# Prometheus 抓取配置（说明书 §3.4）
+# MVP：只抓 API 的 /metrics（worker 为纯消费者，不单独暴露 HTTP metrics）
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "wenlv-api"
+    static_configs:
+      - targets: ["api:8000"]
+    metrics_path: /metrics

@@ -1,0 +1,124 @@
+# 文旅多 Agent 行程规划系统 — Docker Compose（说明书 §3.4 一键拉起）
+# 服务：api / worker / redis / postgres / frontend / prometheus / grafana
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: wenlv
+      POSTGRES_PASSWORD: wenlv
+      POSTGRES_DB: wenlv
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wenlv -d wenlv"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    environment:
+      WENLV_DATABASE_URL: postgresql+asyncpg://wenlv:wenlv@postgres:5432/wenlv
+      WENLV_REDIS_URL: redis://redis:6379/0
+      WENLV_JWT_SECRET: ${WENLV_JWT_SECRET:-dev-only-insecure-secret-change-me}
+      WENLV_WORKSPACE_ROOT: /app/workspace
+      WENLV_LLM_MODE: ${WENLV_LLM_MODE:-mock}
+      WENLV_LLM_API_KEY: ${WENLV_LLM_API_KEY:-}
+      WENLV_LLM_BASE_URL: ${WENLV_LLM_BASE_URL:-}
+      WENLV_LLM_MODEL: ${WENLV_LLM_MODEL:-}
+      WENLV_HITL_DEMO: "true"
+      # 高德 key 从环境变量注入（见根目录 .env，不入 git）
+      WENLV_AMAP_KEY: ${WENLV_AMAP_KEY:-}
+      WENLV_AMAP_ENABLED: "true"
+    ports:
+      - "8001:8000"
+    volumes:
+      - workspace:/app/workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    build: ./backend
+    command: ["python", "-m", "worker"]
+    environment:
+      WENLV_DATABASE_URL: postgresql+asyncpg://wenlv:wenlv@postgres:5432/wenlv
+      WENLV_REDIS_URL: redis://redis:6379/0
+      WENLV_JWT_SECRET: ${WENLV_JWT_SECRET:-dev-only-insecure-secret-change-me}
+      WENLV_WORKSPACE_ROOT: /app/workspace
+      WENLV_LLM_MODE: ${WENLV_LLM_MODE:-mock}
+      WENLV_LLM_API_KEY: ${WENLV_LLM_API_KEY:-}
+      WENLV_LLM_BASE_URL: ${WENLV_LLM_BASE_URL:-}
+      WENLV_LLM_MODEL: ${WENLV_LLM_MODEL:-}
+      WENLV_HITL_DEMO: "true"
+      # 高德 key 从环境变量注入（见根目录 .env，不入 git）
+      WENLV_AMAP_KEY: ${WENLV_AMAP_KEY:-}
+      WENLV_AMAP_ENABLED: "true"
+    volumes:
+      - workspace:/app/workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - api
+      - worker
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3002:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  workspace:
+  grafana-data:
