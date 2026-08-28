@@ -17,6 +17,7 @@ backend/workspace/
 # 前端
 frontend/node_modules/
 frontend/dist/
+*.tsbuildinfo
 
 # IDE / 系统
 .vscode/
