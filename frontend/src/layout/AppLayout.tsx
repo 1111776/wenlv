@@ -13,6 +13,7 @@ import {
 } from "@ant-design/icons";
 import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import { useAuth } from "../store/auth";
+import DynamicBackground from "../components/DynamicBackground";
 
 const { Header, Sider, Content } = Layout;
 
@@ -138,8 +139,11 @@ export default function AppLayout() {
           </Dropdown>
         </Header>
 
-        <Content style={{ padding: 24, background: "#f5f5f5" }}>
-          <Outlet />
+        <Content style={{ padding: 24, position: "relative" }}>
+          <DynamicBackground variant="light" position="absolute" />
+          <div style={{ position: "relative", zIndex: 1 }}>
+            <Outlet />
+          </div>
         </Content>
       </Layout>
     </Layout>

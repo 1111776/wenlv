@@ -2,18 +2,20 @@
 
 用高德真实数据编排行程：
 - 读取 Web Research 节点通过高德 POI 搜索收集的真实景点；
-- 用高德路径规划计算相邻景点间的真实驾车距离与耗时；
+- 用高德路径规划计算相邻景点间的真实驾车距离与耗时（并发，加速）；
 - 按天生成上午/下午/晚上三段行程，附真实路线数据；
-- 检测夜间移动时段 → night_risk 布尔。
+- night_risk 由 hitl_demo 开关控制（演示 HITL 用，真实数据下默认不触发）。
 """
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from sqlalchemy import select
 
 from app.agents.llm import build_system_prompt, get_llm
+from app.core.config import settings
 from app.core.database import session_scope
 from app.core.logging import get_logger
 from app.graph.state import TravelState
@@ -24,13 +26,23 @@ from app.services.amap import AmapError, driving_route
 logger = get_logger(__name__)
 
 
-def _collect_pois(tasks: list[AgentTask]) -> list[dict]:
-    """从 web_research 任务结果里汇总真实 POI（去重，优先景点类）。"""
+def _collect_pois(tasks: list[AgentTask]) -> tuple[list[dict], list[dict]]:
+    """从 web_research 任务结果里汇总真实 POI，按类别分成「景点」和「餐厅」。
+
+    返回 (attractions, restaurants)：
+    - attractions：风景/公园/博物馆/购物等游玩类
+    - restaurants：餐饮美食类（keyword=餐厅 的任务结果）
+    """
     seen: set[str] = set()
-    pois: list[dict] = []
+    attractions: list[dict] = []
+    restaurants: list[dict] = []
+
     for t in tasks:
         if t.agent_type != "web_research" or not t.result:
             continue
+        keyword = t.result.get("keyword", "")
+        is_food = keyword == "餐厅" or "餐厅" in keyword or "美食" in keyword
+
         for p in t.result.get("pois", []):
             name = p.get("name")
             loc = p.get("location")
@@ -39,8 +51,14 @@ def _collect_pois(tasks: list[AgentTask]) -> list[dict]:
             if name in seen:
                 continue
             seen.add(name)
-            pois.append(p)
-    return pois
+            # 附带 keyword 信息，便于分类
+            p = {**p, "_keyword": keyword}
+            if is_food:
+                restaurants.append(p)
+            else:
+                attractions.append(p)
+
+    return attractions, restaurants
 
 
 async def _route_between(origin, destination) -> dict | None:
@@ -82,45 +100,77 @@ async def itinerary_node(state: TravelState) -> dict:
             )
         ).scalars().all()
 
-    pois = _collect_pois(tasks)
+    attractions, restaurants = _collect_pois(tasks)
     # 应用干预：剔除被主管标记为 unavailable 的景点
     if excluded_attractions:
-        pois = [p for p in pois if p.get("name") not in excluded_attractions]
-    logger.info("Itinerary 收集到 %d 个真实 POI（剔除干预 %d 个）", len(pois), len(excluded_attractions))
+        attractions = [p for p in attractions if p.get("name") not in excluded_attractions]
+    logger.info(
+        "Itinerary 收集到 %d 个景点、%d 个餐厅（剔除干预 %d 个）",
+        len(attractions), len(restaurants), len(excluded_attractions),
+    )
 
-    # 按天分配 POI（每天 3 个：上午/下午/晚上）
+    # 按天分配景点（每天 3 个：上午/下午/晚上）
     daily_plan: list[dict] = []
     cursor = 0
-    total_spots = days * 3
 
+    # 先收集所有需要路径规划的点对，一次性并发计算（加速）
+    route_pairs: list[tuple[int, int, tuple, tuple]] = []
+    spots_per_day: list[tuple] = []
     for day in range(1, days + 1):
-        am = pois[cursor % len(pois)] if pois else None
-        pm = pois[(cursor + 1) % len(pois)] if pois else None
-        ev = pois[(cursor + 2) % len(pois)] if pois else None
+        am = attractions[cursor % len(attractions)] if attractions else None
+        pm = attractions[(cursor + 1) % len(attractions)] if attractions else None
+        ev = attractions[(cursor + 2) % len(attractions)] if attractions else None
         cursor += 3
-
-        # 计算真实路径（相邻景点间）
-        am_pm_route = None
-        pm_ev_route = None
+        spots_per_day.append((am, pm, ev))
         if am and pm and am.get("location") and pm.get("location"):
-            am_pm_route = await _route_between(am["location"], pm["location"])
+            route_pairs.append((day - 1, "am_pm", am["location"], pm["location"]))
         if pm and ev and pm.get("location") and ev.get("location"):
-            pm_ev_route = await _route_between(pm["location"], ev["location"])
+            route_pairs.append((day - 1, "pm_ev", pm["location"], ev["location"]))
 
-        def _fmt(poi, route_to_next):
-            return {
-                "spot": poi["name"],
-                "address": poi.get("address", ""),
-                "type": poi.get("type", ""),
-                "route": route_to_next,
-            }
+    # 并发计算所有路径（asyncio.gather）
+    route_results = await asyncio.gather(
+        *[_route_between(o, d) for _, _, o, d in route_pairs],
+        return_exceptions=True,
+    )
+    route_map: dict[tuple[int, str], dict | None] = {}
+    for (day_idx, seg, o, d), res in zip(route_pairs, route_results):
+        route_map[(day_idx, seg)] = res if not isinstance(res, Exception) else None
+
+    # 组装 daily_plan（景点 + 三餐餐饮）
+    def _fmt_spot(poi, route_to_next):
+        return {
+            "spot": poi["name"],
+            "address": poi.get("address", ""),
+            "type": poi.get("type", ""),
+            "route": route_to_next,
+        }
+
+    def _fmt_meal(poi):
+        return {"name": poi["name"], "address": poi.get("address", ""), "type": poi.get("type", "")}
+
+    for day_idx, (am, pm, ev) in enumerate(spots_per_day):
+        am_pm_route = route_map.get((day_idx, "am_pm"))
+        pm_ev_route = route_map.get((day_idx, "pm_ev"))
+
+        # 三餐：按天从餐厅列表轮转取（早餐/午餐/晚餐各一家）
+        def _meal_at(i: int):
+            return restaurants[i % len(restaurants)] if restaurants else None
+
+        breakfast = _meal_at(day_idx * 3)
+        lunch = _meal_at(day_idx * 3 + 1)
+        dinner = _meal_at(day_idx * 3 + 2)
 
         daily_plan.append(
             {
-                "day": day,
-                "morning": _fmt(am, am_pm_route),
-                "afternoon": _fmt(pm, pm_ev_route),
-                "evening": _fmt(ev, None),
+                "day": day_idx + 1,
+                "morning": _fmt_spot(am, am_pm_route),
+                "afternoon": _fmt_spot(pm, pm_ev_route),
+                "evening": _fmt_spot(ev, None),
+                "meals": {
+                    "breakfast": _fmt_meal(breakfast) if breakfast else None,
+                    "lunch": _fmt_meal(lunch) if lunch else None,
+                    "dinner": _fmt_meal(dinner) if dinner else None,
+                },
             }
         )
 
@@ -128,8 +178,8 @@ async def itinerary_node(state: TravelState) -> dict:
     route_names = [d["morning"]["spot"] for d in daily_plan if d["morning"]["spot"]]
     route = f"{destination} → " + " → ".join(route_names) if route_names else destination
 
-    # 夜行风险：行程含夜间移动（MVP 简化：默认 False，除非路径耗时异常长）
-    night_risk = False
+    # 夜行风险：hitl_demo=true 时演示触发 HITL（真实数据下默认 False）
+    night_risk = settings.hitl_demo
 
     itinerary = {
         "days": days,
@@ -137,7 +187,8 @@ async def itinerary_node(state: TravelState) -> dict:
         "daily_plan": daily_plan,
         "route": route,
         "night_risk": night_risk,
-        "poi_count": len(pois),
+        "poi_count": len(attractions),
+        "restaurant_count": len(restaurants),
         "data_source": "amap",
     }
 

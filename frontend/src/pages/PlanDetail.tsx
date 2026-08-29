@@ -35,6 +35,49 @@ const TASK_STATUS: Record<string, { color: string; label: string }> = {
   failed: { color: "warning", label: "失败" },
 };
 
+// 格式化路线数据（距离/耗时）
+function fmtRoute(route: any): string {
+  if (!route) return "";
+  const km = (route.distance / 1000).toFixed(1);
+  const min = Math.round(route.duration / 60);
+  return `${km}km · 约${min}分钟`;
+}
+
+// 单个景点的展示项（名称 + 地址 + 类型 + 到下一点路线）
+function SpotItem({ spot, tagColor, tagText }: { spot: any; tagColor: string; tagText: string }) {
+  return (
+    <div>
+      <Space size={8} wrap>
+        <Tag color={tagColor} style={{ marginRight: 0 }}>{tagText}</Tag>
+        <Typography.Text strong style={{ fontSize: 14 }}>{spot.spot}</Typography.Text>
+      </Space>
+      {spot.address && (
+        <div style={{ color: "#8c8c8c", fontSize: 12, marginTop: 4 }}>
+          📍 {spot.address}
+        </div>
+      )}
+      {spot.route && (
+        <div style={{ color: "#1677ff", fontSize: 12, marginTop: 2 }}>
+          🚗 至下一点：{fmtRoute(spot.route)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 餐饮项展示
+function MealItem({ label, meal }: { label: string; meal: any }) {
+  return (
+    <div style={{ minWidth: 180 }}>
+      <Tag color="gold" style={{ marginRight: 0 }}>{label}</Tag>
+      <Typography.Text strong style={{ fontSize: 13 }}>{meal.name}</Typography.Text>
+      {meal.address && (
+        <div style={{ color: "#8c8c8c", fontSize: 12, marginTop: 2 }}>📍 {meal.address}</div>
+      )}
+    </div>
+  );
+}
+
 // 行程详情：Agent 流程 + 网页任务 + 预算 + 报告 + 实时推送
 export default function PlanDetail() {
   const { id } = useParams();
@@ -117,42 +160,42 @@ export default function PlanDetail() {
                   {
                     color: "blue",
                     dot: <EnvironmentOutlined />,
-                    children: (
-                      <div>
-                        <Typography.Text strong>{day.morning.spot}</Typography.Text>
-                        <div style={{ color: "#999", fontSize: 12 }}>{day.morning.time} · {day.morning.desc}</div>
-                        <Tag color="blue" style={{ marginTop: 4 }}>{day.morning.transport}</Tag>
-                      </div>
-                    ),
+                    children: <SpotItem spot={day.morning} tagColor="blue" tagText="上午" />,
                   },
                   {
                     color: "green",
                     dot: <EnvironmentOutlined />,
-                    children: (
-                      <div>
-                        <Typography.Text strong>{day.afternoon.spot}</Typography.Text>
-                        <div style={{ color: "#999", fontSize: 12 }}>{day.afternoon.time} · {day.afternoon.desc}</div>
-                        <Tag color="green" style={{ marginTop: 4 }}>{day.afternoon.transport}</Tag>
-                      </div>
-                    ),
+                    children: <SpotItem spot={day.afternoon} tagColor="green" tagText="下午" />,
                   },
                   {
                     color: "purple",
                     dot: <EnvironmentOutlined />,
-                    children: (
-                      <div>
-                        <Typography.Text strong>{day.evening.spot}</Typography.Text>
-                        <div style={{ color: "#999", fontSize: 12 }}>{day.evening.time} · {day.evening.desc}</div>
-                        <Tag color="purple" style={{ marginTop: 4 }}>{day.evening.transport}</Tag>
-                      </div>
-                    ),
+                    children: <SpotItem spot={day.evening} tagColor="purple" tagText="晚上" />,
                   },
                 ]}
               />
-              <Space style={{ marginTop: 8 }} size="large">
-                <span><HomeOutlined /> {day.hotel}</span>
-                {day.meals && <span><CoffeeOutlined /> {day.meals.join(" / ")}</span>}
-              </Space>
+              {/* 餐饮安排 */}
+              {day.meals && (
+                <Card
+                  size="small"
+                  style={{ marginTop: 12, background: "#fffbe6", border: "1px solid #ffe58f" }}
+                >
+                  <Typography.Text strong style={{ color: "#d48806" }}>
+                    🍽️ 餐饮安排
+                  </Typography.Text>
+                  <div style={{ marginTop: 8, display: "flex", gap: 24, flexWrap: "wrap" }}>
+                    {day.meals.breakfast && (
+                      <MealItem label="早餐" meal={day.meals.breakfast} />
+                    )}
+                    {day.meals.lunch && (
+                      <MealItem label="午餐" meal={day.meals.lunch} />
+                    )}
+                    {day.meals.dinner && (
+                      <MealItem label="晚餐" meal={day.meals.dinner} />
+                    )}
+                  </div>
+                </Card>
+              )}
             </Card>
           ))}
         </div>

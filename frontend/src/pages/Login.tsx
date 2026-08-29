@@ -3,6 +3,7 @@ import { Button, Card, Form, Input, message, Tabs, Typography, Space, Tag, Divid
 import { EnvironmentOutlined, LockOutlined, UserOutlined, AuditOutlined } from "@ant-design/icons";
 import { api, unwrap } from "../api/client";
 import { useAuth } from "../store/auth";
+import DynamicBackground from "../components/DynamicBackground";
 
 // 登录/注册页：品牌区 + 表单区 + 一键登录按钮
 export default function Login() {
@@ -50,9 +51,13 @@ export default function Login() {
       style={{
         height: "100vh",
         display: "flex",
-        background: "linear-gradient(135deg, #1677ff 0%, #0a3d91 100%)",
+        position: "relative",
+        background: "transparent",
       }}
     >
+      {/* 动态壁纸背景 */}
+      <DynamicBackground />
+
       {/* 品牌区 */}
       <div
         style={{
@@ -62,6 +67,8 @@ export default function Login() {
           justifyContent: "center",
           padding: "0 80px",
           color: "#fff",
+          position: "relative",
+          zIndex: 1,
         }}
       >
         <EnvironmentOutlined style={{ fontSize: 60, marginBottom: 24 }} />
@@ -79,7 +86,7 @@ export default function Login() {
       </div>
 
       {/* 表单区 */}
-      <div style={{ width: 440, display: "flex", alignItems: "center", justifyContent: "center", padding: 40 }}>
+      <div style={{ width: 440, display: "flex", alignItems: "center", justifyContent: "center", padding: 40, position: "relative", zIndex: 1 }}>
         <Card style={{ width: "100%", boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
           <Tabs
             centered

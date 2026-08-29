@@ -269,6 +269,21 @@ def _build_report_markdown(
             lines.append(f"| ☀️ 下午 | **{a.get('spot','-')}** | {a.get('address','')} | {_route_str(a.get('route'))} |")
             lines.append(f"| 🌙 晚上 | **{e.get('spot','-')}** | {e.get('address','')} | — |")
             lines.append("")
+
+            # 餐饮安排
+            meals = day.get("meals")
+            if meals and any(meals.values()):
+                lines.append("**🍽️ 餐饮安排：**")
+                lines.append("")
+                lines.append("| 餐次 | 餐厅 | 地址 |")
+                lines.append("| --- | --- | --- |")
+                if meals.get("breakfast"):
+                    lines.append(f"| 早餐 | {meals['breakfast'].get('name','-')} | {meals['breakfast'].get('address','')} |")
+                if meals.get("lunch"):
+                    lines.append(f"| 午餐 | {meals['lunch'].get('name','-')} | {meals['lunch'].get('address','')} |")
+                if meals.get("dinner"):
+                    lines.append(f"| 晚餐 | {meals['dinner'].get('name','-')} | {meals['dinner'].get('address','')} |")
+                lines.append("")
         sec += 1
     else:
         lines.append(f"## {_sec(sec)}、每日行程计划")

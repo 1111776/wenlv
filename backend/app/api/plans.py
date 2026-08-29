@@ -223,7 +223,8 @@ async def get_plan_file(plan_id: uuid.UUID, request: Request, db: AsyncSession =
     fm = PlanFileManager(plan_id)
     try:
         header, body = fm.load()
-        markdown = fm.path.read_text(encoding="utf-8")
+        # 只返回纯正文 body（去掉 YAML 头），前端渲染更干净
+        markdown = body
     except Exception:
         markdown = ""
         header = {"version": plan.state_version}

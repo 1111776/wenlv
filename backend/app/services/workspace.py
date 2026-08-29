@@ -85,7 +85,12 @@ class PlanFileManager:
 
     @staticmethod
     def _split(raw: str) -> tuple[dict, str]:
-        """把整文件拆成 (YAML header dict, body)。"""
+        """把整文件拆成 (YAML header dict, body)。
+
+        注意：写入时格式为 ``---\\n{header}\\n---\\n{body}``，
+        checksum 只对 body 计算（不含第二个 ``---`` 后的换行），
+        因此这里 body 要去掉紧邻的换行，与写入时的 checksum 口径一致。
+        """
         if not raw.startswith(HEADER_SEP):
             raise WorkspaceError("缺少 YAML 头")
         end = raw.find(HEADER_SEP, len(HEADER_SEP))
@@ -93,6 +98,9 @@ class PlanFileManager:
             raise WorkspaceError("YAML 头未闭合")
         header_raw = raw[len(HEADER_SEP):end]
         body = raw[end + len(HEADER_SEP):]
+        # 去掉第二个 --- 后面的一个换行（写入时是 ---\\n + body）
+        if body.startswith("\n"):
+            body = body[1:]
         header = yaml.safe_load(header_raw) or {}
         return header, body
 

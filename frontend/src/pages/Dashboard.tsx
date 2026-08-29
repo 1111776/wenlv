@@ -70,13 +70,21 @@ export default function Dashboard() {
   return (
     <div>
       {/* 欢迎横幅 */}
-      <Card style={{ marginBottom: 16, background: "linear-gradient(135deg, #1677ff 0%, #0a3d91 100%)" }}>
+      <Card
+        style={{
+          marginBottom: 16,
+          border: "none",
+          borderRadius: 16,
+          background: "linear-gradient(120deg, #1677ff 0%, #3a8cff 45%, #0a3d91 100%)",
+          boxShadow: "0 8px 24px rgba(22,119,255,0.25)",
+        }}
+      >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <Typography.Title level={3} style={{ color: "#fff", margin: 0 }}>
+            <Typography.Title level={3} style={{ color: "#fff", margin: 0, letterSpacing: 0.5 }}>
               欢迎回来，{role === "advisor" ? "旅行顾问" : "主管管理员"}
             </Typography.Title>
-            <Typography.Paragraph style={{ color: "rgba(255,255,255,0.8)", margin: "8px 0 0" }}>
+            <Typography.Paragraph style={{ color: "rgba(255,255,255,0.85)", margin: "10px 0 0", fontSize: 15 }}>
               基于 8 个 AI Agent 协作的文旅资源调研与个性化行程规划系统
             </Typography.Paragraph>
           </div>
@@ -108,22 +116,22 @@ export default function Dashboard() {
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
           <Card hoverable onClick={() => navigate("/plans")}>
-            <StatCard icon={<EnvironmentOutlined style={{ color: "#1677ff" }} />} label="全部行程" value={stats.total} color="#1677ff" />
+            <StatCard icon={<EnvironmentOutlined />} label="全部行程" value={stats.total} color="#1677ff" bg="#e6f0ff" />
           </Card>
         </Col>
         <Col span={6}>
           <Card hoverable onClick={() => navigate("/plans")}>
-            <StatCard icon={<LoadingOutlined style={{ color: "#faad14" }} />} label="执行中" value={stats.running} color="#faad14" />
+            <StatCard icon={<LoadingOutlined />} label="执行中" value={stats.running} color="#faad14" bg="#fff7e6" />
           </Card>
         </Col>
         <Col span={6}>
           <Card hoverable onClick={() => navigate(role === "supervisor" ? "/reviews" : "/plans")}>
-            <StatCard icon={<AuditOutlined style={{ color: "#ff4d4f" }} />} label="待审核" value={stats.review} color="#ff4d4f" />
+            <StatCard icon={<AuditOutlined />} label="待审核" value={stats.review} color="#ff4d4f" bg="#fff1f0" />
           </Card>
         </Col>
         <Col span={6}>
           <Card hoverable onClick={() => navigate("/plans")}>
-            <StatCard icon={<FileDoneOutlined style={{ color: "#52c41a" }} />} label="已完成" value={stats.done} color="#52c41a" />
+            <StatCard icon={<FileDoneOutlined />} label="已完成" value={stats.done} color="#52c41a" bg="#f6ffed" />
           </Card>
         </Col>
       </Row>
@@ -197,13 +205,15 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ icon, label, value, color }: { icon: any; label: string; value: number; color: string }) {
+function StatCard({ icon, label, value, color, bg }: { icon: any; label: string; value: number; color: string; bg: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-      <div style={{ fontSize: 32 }}>{icon}</div>
+      <div className="icon-pill" style={{ color, background: bg }}>
+        {icon}
+      </div>
       <div>
-        <div style={{ fontSize: 28, fontWeight: 700, color, lineHeight: 1.1 }}>{value}</div>
-        <div style={{ color: "#999", fontSize: 13 }}>{label}</div>
+        <div className="stat-number" style={{ color }}>{value}</div>
+        <div style={{ color: "#8c8c8c", fontSize: 13 }}>{label}</div>
       </div>
     </div>
   );
