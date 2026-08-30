@@ -21,6 +21,8 @@ class PlanCreateRequest(BaseModel):
     query: str = Field(..., min_length=1)
     destination: str | None = None
     days: int | None = Field(default=None, ge=1)
+    start_date: str | None = None  # 出发日期 YYYY-MM-DD
+    end_date: str | None = None  # 返程日期 YYYY-MM-DD
     budget_limit: float | None = Field(default=None, gt=0)
     party: Party | None = None
     tags: list[str] | None = None

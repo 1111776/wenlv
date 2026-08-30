@@ -5,7 +5,9 @@ import {
   Card,
   Col,
   Descriptions,
+  Image,
   message,
+  Progress,
   Row,
   Space,
   Table,
@@ -43,24 +45,43 @@ function fmtRoute(route: any): string {
   return `${km}km · 约${min}分钟`;
 }
 
-// 单个景点的展示项（名称 + 地址 + 类型 + 到下一点路线）
+// 单个景点的展示项（图片 + 名称 + 地址 + 营业时间 + 到下一点路线）
 function SpotItem({ spot, tagColor, tagText }: { spot: any; tagColor: string; tagText: string }) {
   return (
-    <div>
-      <Space size={8} wrap>
-        <Tag color={tagColor} style={{ marginRight: 0 }}>{tagText}</Tag>
-        <Typography.Text strong style={{ fontSize: 14 }}>{spot.spot}</Typography.Text>
-      </Space>
-      {spot.address && (
-        <div style={{ color: "#8c8c8c", fontSize: 12, marginTop: 4 }}>
-          📍 {spot.address}
-        </div>
+    <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+      {spot.photo && (
+        <Image
+          src={spot.photo}
+          alt={spot.spot}
+          width={110}
+          height={74}
+          style={{ borderRadius: 8, objectFit: "cover", flexShrink: 0, border: "1px solid #f0f0f0" }}
+        />
       )}
-      {spot.route && (
-        <div style={{ color: "#1677ff", fontSize: 12, marginTop: 2 }}>
-          🚗 至下一点：{fmtRoute(spot.route)}
-        </div>
-      )}
+      <div style={{ flex: 1 }}>
+        <Space size={8} wrap>
+          <Tag color={tagColor} style={{ marginRight: 0 }}>{tagText}</Tag>
+          <Typography.Text strong style={{ fontSize: 14 }}>{spot.spot}</Typography.Text>
+          {spot.rating && (
+            <Tag color="gold" style={{ marginRight: 0 }}>⭐ {spot.rating}</Tag>
+          )}
+        </Space>
+        {spot.address && (
+          <div style={{ color: "#8c8c8c", fontSize: 12, marginTop: 4 }}>
+            📍 {spot.address}
+          </div>
+        )}
+        {spot.opentime && (
+          <div style={{ color: "#d48806", fontSize: 12, marginTop: 2 }}>
+            🕐 营业时间：{spot.opentime}
+          </div>
+        )}
+        {spot.route && (
+          <div style={{ color: "#1677ff", fontSize: 12, marginTop: 2 }}>
+            🚗 至下一点：{fmtRoute(spot.route)}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -68,12 +89,29 @@ function SpotItem({ spot, tagColor, tagText }: { spot: any; tagColor: string; ta
 // 餐饮项展示
 function MealItem({ label, meal }: { label: string; meal: any }) {
   return (
-    <div style={{ minWidth: 180 }}>
-      <Tag color="gold" style={{ marginRight: 0 }}>{label}</Tag>
-      <Typography.Text strong style={{ fontSize: 13 }}>{meal.name}</Typography.Text>
-      {meal.address && (
-        <div style={{ color: "#8c8c8c", fontSize: 12, marginTop: 2 }}>📍 {meal.address}</div>
+    <div style={{ display: "flex", gap: 10, alignItems: "flex-start", minWidth: 220 }}>
+      {meal.photo && (
+        <Image
+          src={meal.photo}
+          alt={meal.name}
+          width={80}
+          height={56}
+          style={{ borderRadius: 8, objectFit: "cover", flexShrink: 0, border: "1px solid #f0f0f0" }}
+        />
       )}
+      <div style={{ flex: 1 }}>
+        <Space size={4}>
+          <Tag color="gold" style={{ marginRight: 0 }}>{label}</Tag>
+          <Typography.Text strong style={{ fontSize: 13 }}>{meal.name}</Typography.Text>
+          {meal.rating && <Tag color="gold" style={{ marginRight: 0 }}>⭐ {meal.rating}</Tag>}
+        </Space>
+        {meal.address && (
+          <div style={{ color: "#8c8c8c", fontSize: 12, marginTop: 2 }}>📍 {meal.address}</div>
+        )}
+        {meal.opentime && (
+          <div style={{ color: "#d48806", fontSize: 12, marginTop: 2 }}>🕐 {meal.opentime}</div>
+        )}
+      </div>
     </div>
   );
 }
@@ -263,7 +301,7 @@ export default function PlanDetail() {
     {
       key: "plan-file",
       label: "📋 状态看板",
-      children: <Markdown content={planFile} />,
+      children: <StatusBoard agents={agents} />,
     },
   ];
 
@@ -304,6 +342,134 @@ export default function PlanDetail() {
 
       <Card>
         <Tabs items={tabItems} />
+      </Card>
+    </div>
+  );
+}
+
+// 人类可读的状态看板：进度条 + Agent 步骤 + 数据统计
+function StatusBoard({ agents }: { agents: any }) {
+  const agentList = agents?.agents || [];
+  const tasks = agents?.tasks || [];
+  const itinerary = agents?.itinerary;
+
+  // 整体进度：已完成任务数 / 总任务数
+  const doneCount = tasks.filter((t: any) => t.status === "completed" || t.status === "blocked").length;
+  const totalCount = tasks.length || 0;
+  const percent = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
+  // 状态 → 中文 + 颜色
+  const STATUS_TEXT: Record<string, string> = {
+    completed: "已完成",
+    running: "进行中",
+    pending: "待执行",
+    waiting: "等待审核",
+    reviewing: "审核中",
+    rejected: "已驳回",
+    skipped: "已跳过",
+  };
+  const STATUS_COLOR: Record<string, string> = {
+    completed: "success",
+    running: "processing",
+    pending: "default",
+    waiting: "warning",
+    reviewing: "warning",
+    rejected: "error",
+    skipped: "default",
+  };
+
+  const doneAgents = agentList.filter((a: any) => a.status === "completed").length;
+
+  return (
+    <div>
+      {/* 总进度 */}
+      <Card style={{ marginBottom: 16, background: "#f0f7ff" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <Typography.Text strong style={{ fontSize: 16 }}>
+              当前进度：{agents?.status === "completed" ? "已完成" : agents?.status === "suspended" ? "待人工审核" : "执行中"}
+            </Typography.Text>
+            <Typography.Paragraph style={{ color: "#8c8c8c", margin: "4px 0 0" }}>
+              已完成 {doneAgents}/8 个环节，调研 {doneCount}/{totalCount} 个任务
+            </Typography.Paragraph>
+          </div>
+          <div style={{ width: 200 }}>
+            <Progress percent={percent} status={agents?.status === "completed" ? "success" : "active"} />
+          </div>
+        </div>
+      </Card>
+
+      {/* 8 个 Agent 步骤 */}
+      <Card title="8 个 Agent 执行步骤" style={{ marginBottom: 16 }}>
+        <Row gutter={[12, 12]}>
+          {agentList.map((a: any) => (
+            <Col span={6} key={a.key}>
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: 8,
+                  border: "1px solid #f0f0f0",
+                  background: a.status === "completed" ? "#f6ffed" : a.status === "running" ? "#e6f0ff" : "#fff",
+                }}
+              >
+                <div style={{ fontSize: 18, marginBottom: 6 }}>{a.icon}</div>
+                <Typography.Text strong style={{ fontSize: 13 }}>{a.name}</Typography.Text>
+                <div style={{ marginTop: 4 }}>
+                  <Tag color={STATUS_COLOR[a.status] || "default"}>
+                    {STATUS_TEXT[a.status] || a.status}
+                  </Tag>
+                </div>
+              </div>
+            </Col>
+          ))}
+        </Row>
+      </Card>
+
+      {/* 调研数据统计 */}
+      <Card title="调研成果" style={{ marginBottom: 16 }}>
+        <Row gutter={16}>
+          <Col span={8}>
+            <div style={{ textAlign: "center", padding: 12, background: "#fafafa", borderRadius: 8 }}>
+              <div className="stat-number" style={{ color: "#1677ff" }}>
+                {itinerary?.poi_count ?? 0}
+              </div>
+              <div style={{ color: "#8c8c8c", fontSize: 13 }}>调研景点数</div>
+            </div>
+          </Col>
+          <Col span={8}>
+            <div style={{ textAlign: "center", padding: 12, background: "#fafafa", borderRadius: 8 }}>
+              <div className="stat-number" style={{ color: "#faad14" }}>
+                {itinerary?.restaurant_count ?? 0}
+              </div>
+              <div style={{ color: "#8c8c8c", fontSize: 13 }}>调研餐厅数</div>
+            </div>
+          </Col>
+          <Col span={8}>
+            <div style={{ textAlign: "center", padding: 12, background: "#fafafa", borderRadius: 8 }}>
+              <div className="stat-number" style={{ color: "#52c41a" }}>
+                {itinerary?.days ?? "-"}
+              </div>
+              <div style={{ color: "#8c8c8c", fontSize: 13 }}>行程天数</div>
+            </div>
+          </Col>
+        </Row>
+      </Card>
+
+      {/* 已调研的景点列表 */}
+      <Card title={`已调研的景点（${tasks.filter((t: any) => t.status === "completed").length} 个）`}>
+        {tasks.filter((t: any) => t.status === "completed").length === 0 ? (
+          <Typography.Text type="secondary">暂无已完成的调研</Typography.Text>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {tasks
+              .filter((t: any) => t.status === "completed")
+              .map((t: any) => (
+                <Tag key={t.page_no} color="blue" style={{ fontSize: 13, padding: "4px 10px" }}>
+                  {t.title}
+                </Tag>
+              ))}
+          </div>
+        )}
       </Card>
     </div>
   );

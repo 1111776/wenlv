@@ -85,6 +85,18 @@ async def create_plan(
         if existing is not None:
             return ok({"plan_id": str(existing.id), "status": existing.status}, message="已存在")
 
+    # 日期 → 自动算天数（出发/返程同一天 = 1 天）
+    days = body.days
+    if days is None and body.start_date and body.end_date:
+        try:
+            from datetime import date
+
+            s = date.fromisoformat(body.start_date)
+            e = date.fromisoformat(body.end_date)
+            days = (e - s).days + 1
+        except ValueError:
+            days = None
+
     plan = TravelPlan(
         user_id=user_id,
         query=body.query,
@@ -97,10 +109,12 @@ async def create_plan(
     await db.flush()
 
     # 可选结构化字段写入 preferences（Intake 会覆盖/补全）
-    if body.destination or body.days or body.party or body.tags:
+    if body.destination or days or body.party or body.tags or body.start_date:
         plan.preferences = {
             "destination": body.destination,
-            "days": body.days,
+            "days": days,
+            "start_date": body.start_date,
+            "end_date": body.end_date,
             "budget_limit": body.budget_limit,
             "party": body.party.model_dump() if body.party else None,
             "tags": body.tags,

@@ -3,6 +3,7 @@ import {
   Button,
   Card,
   Col,
+  DatePicker,
   Form,
   Input,
   InputNumber,
@@ -16,6 +17,7 @@ import {
 } from "antd";
 import { RocketOutlined, ArrowLeftOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
+import dayjs from "dayjs";
 import { api, unwrap } from "../api/client";
 
 // 新建行程：引导式表单
@@ -24,6 +26,20 @@ export default function PlanNew() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [createdId, setCreatedId] = useState<string | null>(null);
+  const [autoDays, setAutoDays] = useState<number | null>(null);
+
+  // 监听日期变化，自动算天数
+  const onDateChange = () => {
+    const start = form.getFieldValue("start_date");
+    const end = form.getFieldValue("end_date");
+    if (start && end) {
+      const days = end.diff(start, "day") + 1;
+      if (days > 0) {
+        setAutoDays(days);
+        form.setFieldsValue({ days: days });
+      }
+    }
+  };
 
   const onSubmit = async (values: any) => {
     setLoading(true);
@@ -35,6 +51,9 @@ export default function PlanNew() {
         budget_limit: values.budget_limit,
         tags: values.tags || [],
       };
+      // 日期转字符串（后端存 YYYY-MM-DD）
+      if (values.start_date) payload.start_date = values.start_date.format("YYYY-MM-DD");
+      if (values.end_date) payload.end_date = values.end_date.format("YYYY-MM-DD");
       if (values.adults || values.children) {
         payload.party = { adults: values.adults || 1, children: values.children || 0 };
       }
@@ -113,7 +132,20 @@ export default function PlanNew() {
                 </Form.Item>
               </Col>
               <Col span={8}>
-                <Form.Item name="days" label="天数">
+                <Form.Item name="start_date" label="出发日期">
+                  <DatePicker style={{ width: "100%" }} onChange={onDateChange} placeholder="选择出发日期" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="end_date" label="返程日期">
+                  <DatePicker style={{ width: "100%" }} onChange={onDateChange} placeholder="选择返程日期" />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="days" label="天数（选日期自动算）">
                   <InputNumber min={1} max={30} style={{ width: "100%" }} placeholder="7" />
                 </Form.Item>
               </Col>
@@ -122,14 +154,14 @@ export default function PlanNew() {
                   <InputNumber min={1} style={{ width: "100%" }} placeholder="15000" />
                 </Form.Item>
               </Col>
-            </Row>
-
-            <Row gutter={16}>
               <Col span={8}>
                 <Form.Item name="adults" label="成人">
                   <InputNumber min={1} max={20} style={{ width: "100%" }} placeholder="2" />
                 </Form.Item>
               </Col>
+            </Row>
+
+            <Row gutter={16}>
               <Col span={8}>
                 <Form.Item name="children" label="儿童">
                   <InputNumber min={0} max={20} style={{ width: "100%" }} placeholder="1" />

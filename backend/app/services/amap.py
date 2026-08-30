@@ -124,14 +124,14 @@ async def search_poi(
 ) -> list[dict]:
     """POI 关键词搜索，返回 POI 列表（标准化字段）。
 
-    返回每条：name, location(lng,lat), address, type, typecode, tel(可选), rating(可选)。
+    返回每条：name, location(lng,lat), address, type, typecode, tel(可选), rating(可选), opentime(营业时间)。
     """
     params = {
         "keywords": keywords,
         "city": city,
         "offset": offset,
         "page": 1,
-        "extensions": "base",
+        "extensions": "all",  # all 才返回 biz_ext（营业时间/评分）
     }
     if types:
         params["types"] = types
@@ -147,6 +147,12 @@ async def search_poi(
                 lng, lat = float(lng_s), float(lat_s)
             except ValueError:
                 pass
+        biz_ext = p.get("biz_ext") or {}
+        # 图片：取第一张照片 URL（高德返回 http，浏览器 http 页面可直接加载）
+        photos = p.get("photos") or []
+        photo_url = ""
+        if photos and isinstance(photos, list) and photos[0].get("url"):
+            photo_url = photos[0]["url"]
         result.append(
             {
                 "name": p.get("name"),
@@ -155,6 +161,9 @@ async def search_poi(
                 "type": p.get("type") or "",
                 "typecode": p.get("typecode") or "",
                 "tel": p.get("tel") or "",
+                "rating": biz_ext.get("rating") or "",
+                "opentime": biz_ext.get("opentime2") or "",  # 营业时间
+                "photo": photo_url,  # 景点/餐厅图片 URL
             }
         )
     return result

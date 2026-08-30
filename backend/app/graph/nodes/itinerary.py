@@ -143,10 +143,20 @@ async def itinerary_node(state: TravelState) -> dict:
             "address": poi.get("address", ""),
             "type": poi.get("type", ""),
             "route": route_to_next,
+            "opentime": poi.get("opentime", ""),
+            "rating": poi.get("rating", ""),
+            "photo": poi.get("photo", ""),
         }
 
     def _fmt_meal(poi):
-        return {"name": poi["name"], "address": poi.get("address", ""), "type": poi.get("type", "")}
+        return {
+            "name": poi["name"],
+            "address": poi.get("address", ""),
+            "type": poi.get("type", ""),
+            "opentime": poi.get("opentime", ""),
+            "rating": poi.get("rating", ""),
+            "photo": poi.get("photo", ""),
+        }
 
     for day_idx, (am, pm, ev) in enumerate(spots_per_day):
         am_pm_route = route_map.get((day_idx, "am_pm"))
@@ -220,7 +230,7 @@ async def itinerary_node(state: TravelState) -> dict:
         )
         await db.flush()
 
-    logger.info("Itinerary 生成完成 plan=%s days=%d 真实POI=%d", plan_id, days, len(pois))
+    logger.info("Itinerary 生成完成 plan=%s days=%d 景点=%d 餐厅=%d", plan_id, days, len(attractions), len(restaurants))
     return {
         "night_risk": night_risk,
         "completed_nodes": state.get("completed_nodes", []) + ["itinerary"],

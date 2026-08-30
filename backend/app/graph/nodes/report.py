@@ -160,6 +160,14 @@ def _route_str(route: dict | None) -> str:
     return f"{dist_km:.1f}km / {dur_min}分钟"
 
 
+def _short_time(opentime: str) -> str:
+    """营业时间截短显示（高德 opentime 可能很长，报告里只取关键部分）。"""
+    if not opentime:
+        return "—"
+    # 取前 40 字符，超长省略
+    return opentime[:40] + ("..." if len(opentime) > 40 else "")
+
+
 _CN_NUM = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
 
 
@@ -260,14 +268,14 @@ def _build_report_markdown(
         for day in itinerary["daily_plan"]:
             lines.append(f"### 第 {day['day']} 天")
             lines.append("")
-            lines.append("| 时段 | 景点 | 地址 | 到下一点路线 |")
-            lines.append("| --- | --- | --- | --- |")
+            lines.append("| 时段 | 景点 | 地址 | 营业时间 | 到下一点路线 |")
+            lines.append("| --- | --- | --- | --- | --- |")
             m = day["morning"]
             a = day["afternoon"]
             e = day["evening"]
-            lines.append(f"| 🌅 上午 | **{m.get('spot','-')}** | {m.get('address','')} | {_route_str(m.get('route'))} |")
-            lines.append(f"| ☀️ 下午 | **{a.get('spot','-')}** | {a.get('address','')} | {_route_str(a.get('route'))} |")
-            lines.append(f"| 🌙 晚上 | **{e.get('spot','-')}** | {e.get('address','')} | — |")
+            lines.append(f"| 🌅 上午 | **{m.get('spot','-')}** | {m.get('address','')} | {_short_time(m.get('opentime',''))} | {_route_str(m.get('route'))} |")
+            lines.append(f"| ☀️ 下午 | **{a.get('spot','-')}** | {a.get('address','')} | {_short_time(a.get('opentime',''))} | {_route_str(a.get('route'))} |")
+            lines.append(f"| 🌙 晚上 | **{e.get('spot','-')}** | {e.get('address','')} | {_short_time(e.get('opentime',''))} | — |")
             lines.append("")
 
             # 餐饮安排
@@ -275,14 +283,14 @@ def _build_report_markdown(
             if meals and any(meals.values()):
                 lines.append("**🍽️ 餐饮安排：**")
                 lines.append("")
-                lines.append("| 餐次 | 餐厅 | 地址 |")
-                lines.append("| --- | --- | --- |")
+                lines.append("| 餐次 | 餐厅 | 地址 | 营业时间 |")
+                lines.append("| --- | --- | --- | --- |")
                 if meals.get("breakfast"):
-                    lines.append(f"| 早餐 | {meals['breakfast'].get('name','-')} | {meals['breakfast'].get('address','')} |")
+                    lines.append(f"| 早餐 | {meals['breakfast'].get('name','-')} | {meals['breakfast'].get('address','')} | {_short_time(meals['breakfast'].get('opentime',''))} |")
                 if meals.get("lunch"):
-                    lines.append(f"| 午餐 | {meals['lunch'].get('name','-')} | {meals['lunch'].get('address','')} |")
+                    lines.append(f"| 午餐 | {meals['lunch'].get('name','-')} | {meals['lunch'].get('address','')} | {_short_time(meals['lunch'].get('opentime',''))} |")
                 if meals.get("dinner"):
-                    lines.append(f"| 晚餐 | {meals['dinner'].get('name','-')} | {meals['dinner'].get('address','')} |")
+                    lines.append(f"| 晚餐 | {meals['dinner'].get('name','-')} | {meals['dinner'].get('address','')} | {_short_time(meals['dinner'].get('opentime',''))} |")
                 lines.append("")
         sec += 1
     else:
