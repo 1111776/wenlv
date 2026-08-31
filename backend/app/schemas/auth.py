@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=64)
     password: str = Field(..., min_length=6, max_length=128)
+    # 可选角色：默认 tourist（游客），也可选 advisor（旅行顾问）
+    role: str = Field(default="tourist", pattern="^(tourist|advisor)$")
 
 
 class LoginRequest(BaseModel):

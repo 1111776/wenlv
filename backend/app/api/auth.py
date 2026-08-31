@@ -23,7 +23,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register")
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    """注册 advisor 账号（公开，role 固定 advisor，S20/S22）。"""
+    """公开注册，默认游客（tourist），也可选 advisor（旅行顾问）。supervisor 只能 seed。"""
     existing = await db.execute(select(User).where(User.username == body.username))
     if existing.scalar_one_or_none() is not None:
         raise Err.INVALID_PARAM.to_http()
@@ -31,7 +31,7 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     user = User(
         username=body.username,
         password_hash=hash_password(body.password),
-        role="advisor",
+        role=body.role,
     )
     db.add(user)
     await db.flush()

@@ -68,7 +68,8 @@ export default function AppLayout() {
     return items;
   }, [role]);
 
-  const roleLabel = role === "advisor" ? "旅行顾问" : "主管管理员";
+  const roleLabel =
+    role === "advisor" ? "旅行顾问" : role === "supervisor" ? "主管管理员" : "游客";
 
   // 高亮当前菜单
   const selectedKey = useMemo(() => {
@@ -98,7 +99,7 @@ export default function AppLayout() {
           }}
         >
           <EnvironmentOutlined style={{ fontSize: 22, color: "#1677ff" }} />
-          <span>文旅行程规划</span>
+          <span>山海行</span>
         </div>
         <Menu
           theme="dark"

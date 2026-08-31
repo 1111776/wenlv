@@ -6,7 +6,9 @@ import {
   Col,
   Descriptions,
   Image,
+  Input,
   message,
+  Modal,
   Progress,
   Row,
   Space,
@@ -22,6 +24,9 @@ import {
   CarOutlined,
   CoffeeOutlined,
   HomeOutlined,
+  EditOutlined,
+  PlusOutlined,
+  DeleteOutlined,
 } from "@ant-design/icons";
 import { api, unwrap } from "../api/client";
 import { subscribePlan } from "../api/ws";
@@ -124,6 +129,9 @@ export default function PlanDetail() {
   const [planFile, setPlanFile] = useState<string>("");
   const [report, setReport] = useState<any>(null);
   const [lastEvent, setLastEvent] = useState<string>("");
+  const [editOpen, setEditOpen] = useState(false);
+  const [editPlan, setEditPlan] = useState<any[]>([]);
+  const [saving, setSaving] = useState(false);
 
   const load = async () => {
     try {
@@ -137,6 +145,28 @@ export default function PlanDetail() {
       setPlanFile(f.markdown);
     } catch (e: any) {
       message.error(e.message);
+    }
+  };
+
+  // 打开编辑：深拷贝当前 daily_plan
+  const openEdit = () => {
+    const dp = agents?.itinerary?.daily_plan || [];
+    setEditPlan(JSON.parse(JSON.stringify(dp)));
+    setEditOpen(true);
+  };
+
+  // 保存修改：提交完整 daily_plan
+  const saveEdit = async () => {
+    setSaving(true);
+    try {
+      await unwrap(api.patch(`/plans/${id}/itinerary`, { daily_plan: editPlan }));
+      message.success("行程已修改");
+      setEditOpen(false);
+      load();
+    } catch (e: any) {
+      message.error(e.message || "保存失败");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -175,6 +205,12 @@ export default function PlanDetail() {
       label: "📅 行程计划",
       children: agents.itinerary?.daily_plan ? (
         <div>
+          {/* 编辑按钮 */}
+          <div style={{ marginBottom: 16, display: "flex", justifyContent: "flex-end" }}>
+            <Button type="primary" icon={<EditOutlined />} onClick={openEdit}>
+              编辑行程
+            </Button>
+          </div>
           {/* 路线串联 */}
           {agents.itinerary.route && (
             <Card size="small" style={{ marginBottom: 16, background: "#f0f7ff" }}>
@@ -335,6 +371,12 @@ export default function PlanDetail() {
           {agents.preferences?.party && (
             <Descriptions.Item label="出行人">
               {agents.preferences.party.adults} 大 {agents.preferences.party.children} 小
+              {agents.preferences.party.elders ? ` ${agents.preferences.party.elders} 老` : ""}
+            </Descriptions.Item>
+          )}
+          {agents.preferences?.party?.elder_status && (
+            <Descriptions.Item label="老人状态">
+              {agents.preferences.party.elder_status}
             </Descriptions.Item>
           )}
         </Descriptions>
@@ -343,6 +385,106 @@ export default function PlanDetail() {
       <Card>
         <Tabs items={tabItems} />
       </Card>
+
+      {/* 编辑行程 Modal */}
+      <Modal
+        title="编辑行程计划"
+        open={editOpen}
+        onCancel={() => setEditOpen(false)}
+        onOk={saveEdit}
+        okText="保存修改"
+        confirmLoading={saving}
+        width={760}
+      >
+        <Typography.Paragraph type="secondary">
+          删除不想要的景点，或在某一天添加新的景点（名称 + 地址），保存后立即生效，无需重新生成。
+        </Typography.Paragraph>
+        {editPlan.map((day: any, di: number) => (
+          <Card
+            key={di}
+            size="small"
+            title={`第 ${day.day} 天`}
+            style={{ marginBottom: 12 }}
+            extra={
+              <Button
+                size="small"
+                type="dashed"
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  const newPlan = [...editPlan];
+                  const segs = ["morning", "afternoon", "evening"];
+                  // 找一个空位添加，默认加上午
+                  newPlan[di].morning = {
+                    spot: "新景点",
+                    address: "",
+                    type: "",
+                    route: null,
+                    opentime: "",
+                    rating: "",
+                    photo: "",
+                  };
+                  setEditPlan(newPlan);
+                }}
+              >
+                加景点
+              </Button>
+            }
+          >
+            {["morning", "afternoon", "evening"].map((seg) => {
+              const spot = day[seg];
+              if (!spot || !spot.spot) return null;
+              return (
+                <div
+                  key={seg}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "6px 0",
+                    borderBottom: "1px solid #f5f5f5",
+                  }}
+                >
+                  <Tag style={{ width: 48, textAlign: "center", marginRight: 0 }}>
+                    {seg === "morning" ? "上午" : seg === "afternoon" ? "下午" : "晚上"}
+                  </Tag>
+                  <Input
+                    size="small"
+                    value={spot.spot}
+                    onChange={(e) => {
+                      const np = [...editPlan];
+                      np[di][seg].spot = e.target.value;
+                      setEditPlan(np);
+                    }}
+                    style={{ width: 220 }}
+                  />
+                  <Input
+                    size="small"
+                    value={spot.address}
+                    placeholder="地址（可选）"
+                    onChange={(e) => {
+                      const np = [...editPlan];
+                      np[di][seg].address = e.target.value;
+                      setEditPlan(np);
+                    }}
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    size="small"
+                    danger
+                    type="text"
+                    icon={<DeleteOutlined />}
+                    onClick={() => {
+                      const np = [...editPlan];
+                      np[di][seg] = { spot: "", address: "", type: "", route: null, opentime: "", rating: "", photo: "" };
+                      setEditPlan(np);
+                    }}
+                  />
+                </div>
+              );
+            })}
+          </Card>
+        ))}
+      </Modal>
     </div>
   );
 }

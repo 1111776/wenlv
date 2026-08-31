@@ -30,7 +30,7 @@ export default function DynamicBackground({
   );
 }
 
-// 内容区场景：同一张真实图片 + 白色半透明遮罩（保证内容可读，不遮挡侧边栏）
+// 内容区场景：同一张真实图片，原色显示（不加白色遮罩，图片清晰可见，不遮挡侧边栏）
 function LightScene() {
   return (
     <>
@@ -44,17 +44,8 @@ function LightScene() {
           backgroundImage: `url(${loginBg})`,
           backgroundSize: "cover",
           backgroundPosition: "center",
-        }}
-      />
-      {/* 白色半透明遮罩：内容卡片白底浮在上面，保证可读性 */}
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: "rgba(255,255,255,0.88)",
+          // 原图清晰显示，只轻微压暗保证白字可读（卡片本身白底不受影响）
+          filter: "saturate(1.2) contrast(1.08) brightness(0.85)",
         }}
       />
     </>

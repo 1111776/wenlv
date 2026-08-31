@@ -21,6 +21,7 @@ from app.models.agent_task import TASK_STATUS
 from app.models.travel_plan import PLAN_STATUS, TERMINAL_STATUSES
 from app.schemas.common import ok
 from app.schemas.plan import (
+    ItineraryUpdateRequest,
     PlanCreateRequest,
     PlanDetailOut,
     PlanFileOut,
@@ -109,8 +110,9 @@ async def create_plan(
     await db.flush()
 
     # 可选结构化字段写入 preferences（Intake 会覆盖/补全）
-    if body.destination or days or body.party or body.tags or body.start_date:
+    if body.destination or days or body.party or body.tags or body.start_date or body.origin:
         plan.preferences = {
+            "origin": body.origin,
             "destination": body.destination,
             "days": days,
             "start_date": body.start_date,
@@ -139,10 +141,10 @@ async def list_plans(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
 ):
-    """行程列表（advisor 仅自己；supervisor 可按 status 筛）。"""
+    """行程列表（顾问/游客 仅自己；supervisor 可按 status 筛）。"""
     user = request.state.user
     stmt = select(TravelPlan)
-    if user["role"] == "advisor":
+    if user["role"] in ("advisor", "tourist"):
         stmt = stmt.where(TravelPlan.user_id == user["id"])
     if status:
         stmt = stmt.where(TravelPlan.status == status)
@@ -387,12 +389,12 @@ def _review_status(plan: TravelPlan, review) -> str:
 
 @router.post("/{plan_id}/cancel")
 async def cancel_plan(plan_id: uuid.UUID, request: Request, db: AsyncSession = Depends(get_db)):
-    """取消非终态行程（advisor 本人或 supervisor）。"""
+    """取消非终态行程（顾问/游客 本人或 supervisor）。"""
     plan = await db.get(TravelPlan, plan_id)
     if plan is None:
         raise Err.NOT_FOUND.to_http()
     user = request.state.user
-    if user["role"] == "advisor" and plan.user_id != user["id"]:
+    if user["role"] in ("advisor", "tourist") and plan.user_id != user["id"]:
         raise Err.FORBIDDEN.to_http()
     if plan.status in TERMINAL_STATUSES:
         raise Err.BAD_STATE.to_http()
@@ -403,7 +405,55 @@ async def cancel_plan(plan_id: uuid.UUID, request: Request, db: AsyncSession = D
     return ok({"plan_id": str(plan.id), "status": PLAN_STATUS["CANCELLED"]})
 
 
+@router.patch("/{plan_id}/itinerary")
+async def update_itinerary(
+    plan_id: uuid.UUID,
+    body: ItineraryUpdateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """手动修改行程规划：直接覆盖 daily_plan（增删景点/餐饮），不重新跑 Agent。
+
+    适用场景：用户对生成的行程不满意，手动增删景点/餐厅后保存。
+    """
+    plan = await db.get(TravelPlan, plan_id)
+    if plan is None:
+        raise Err.NOT_FOUND.to_http()
+    _check_visibility(plan, request.state.user)
+
+    # 读取并更新 Itinerary 的 agent_task 结果
+    itinerary_task = (
+        await db.execute(
+            select(AgentTask).where(
+                AgentTask.plan_id == plan_id,
+                AgentTask.agent_type == "itinerary",
+            )
+        )
+    ).scalars().first()
+
+    if itinerary_task is None:
+        # 还没有 itinerary 结果，新建一个占位
+        itinerary_task = AgentTask(
+            plan_id=plan_id,
+            agent_type="itinerary",
+            order_index=101,
+            status=TASK_STATUS["COMPLETED"],
+            task_data={"title": "日程编排"},
+            result={},
+        )
+        db.add(itinerary_task)
+
+    # 覆盖 daily_plan（保留原 result 里的其他字段，如 destination/days/route）
+    old_result = itinerary_task.result or {}
+    new_result = {**old_result, "daily_plan": body.daily_plan}
+    itinerary_task.result = new_result
+    await db.flush()
+
+    await add_audit(db, action="itinerary_update", actor_id=request.state.user["id"], plan_id=plan_id)
+    return ok({"plan_id": str(plan_id), "updated": True})
+
+
 def _check_visibility(plan: TravelPlan, user: dict) -> None:
-    """advisor 只能看自己的行程；supervisor 可看全部。"""
-    if user["role"] == "advisor" and plan.user_id != user["id"]:
+    """顾问/游客只能看自己的行程；supervisor 可看全部。"""
+    if user["role"] in ("advisor", "tourist") and plan.user_id != user["id"]:
         raise Err.FORBIDDEN.to_http()

@@ -13,12 +13,15 @@ class Party(BaseModel):
 
     adults: int = Field(default=1, ge=1)
     children: int = Field(default=0, ge=0)
+    elders: int = Field(default=0, ge=0)  # 老人数量
+    elder_status: str | None = None  # 老人生活状态：健康/行动不便/需轮椅/慢病等
 
 
 class PlanCreateRequest(BaseModel):
     """创建行程请求。query 必填，其余可选，Intake 可补全。"""
 
     query: str = Field(..., min_length=1)
+    origin: str | None = None  # 出发地
     destination: str | None = None
     days: int | None = Field(default=None, ge=1)
     start_date: str | None = None  # 出发日期 YYYY-MM-DD
@@ -31,6 +34,15 @@ class PlanCreateRequest(BaseModel):
 class PlanCreateOut(BaseModel):
     plan_id: uuid.UUID
     status: str
+
+
+class ItineraryUpdateRequest(BaseModel):
+    """手动修改行程规划（增删景点/餐饮，不重新生成）。
+
+    前端把完整的新 daily_plan 传回来，后端直接覆盖 Itinerary 结果。
+    """
+
+    daily_plan: list[dict] = Field(default_factory=list)
 
 
 class PlanStatusOut(BaseModel):

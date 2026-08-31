@@ -141,7 +141,7 @@ export default function PlanList() {
       title={
         <Space>
           <span>行程列表</span>
-          <Tag>{role === "advisor" ? "我的行程" : "全部行程"}</Tag>
+          <Tag>{role === "supervisor" ? "全部行程" : "我的行程"}</Tag>
         </Space>
       }
       extra={
@@ -166,7 +166,7 @@ export default function PlanList() {
           <Button icon={<ReloadOutlined />} onClick={load}>
             刷新
           </Button>
-          {role === "advisor" && (
+          {role !== "supervisor" && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate("/plans/new")}>
               新建行程
             </Button>

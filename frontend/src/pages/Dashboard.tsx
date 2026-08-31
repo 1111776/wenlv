@@ -42,6 +42,10 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [plans, setPlans] = useState<any[]>([]);
 
+  const roleLabel =
+    role === "advisor" ? "旅行顾问" : role === "supervisor" ? "主管管理员" : "游客";
+  const isConsultant = role === "advisor" || role === "tourist";
+
   const load = async () => {
     try {
       const data = await unwrap<any>(api.get("/plans"));
@@ -82,13 +86,13 @@ export default function Dashboard() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <Typography.Title level={3} style={{ color: "#fff", margin: 0, letterSpacing: 0.5 }}>
-              欢迎回来，{role === "advisor" ? "旅行顾问" : "主管管理员"}
+              欢迎回来，{roleLabel}
             </Typography.Title>
             <Typography.Paragraph style={{ color: "rgba(255,255,255,0.85)", margin: "10px 0 0", fontSize: 15 }}>
               基于 8 个 AI Agent 协作的文旅资源调研与个性化行程规划系统
             </Typography.Paragraph>
           </div>
-          {role === "advisor" && (
+          {isConsultant && (
             <Button
               type="primary"
               icon={<RocketOutlined />}
@@ -147,7 +151,7 @@ export default function Dashboard() {
       >
         {recent.length === 0 ? (
           <Empty description="暂无行程" style={{ padding: 40 }}>
-            {role === "advisor" && (
+            {isConsultant && (
               <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate("/plans/new")}>
                 创建第一个行程
               </Button>

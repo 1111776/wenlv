@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Button, Card, Form, Input, message, Tabs, Typography, Space, Tag, Divider } from "antd";
-import { EnvironmentOutlined, LockOutlined, UserOutlined, AuditOutlined } from "@ant-design/icons";
+import { Button, Card, Form, Input, message, Select, Tabs, Typography, Space, Tag, Divider } from "antd";
+import { EnvironmentOutlined, LockOutlined, UserOutlined, AuditOutlined, GlobalOutlined } from "@ant-design/icons";
 import { api, unwrap } from "../api/client";
 import { useAuth } from "../store/auth";
 import DynamicBackground from "../components/DynamicBackground";
@@ -37,7 +37,13 @@ export default function Login() {
   const onRegister = async (values: any) => {
     setLoading(true);
     try {
-      await unwrap(api.post("/auth/register", { username: values.username, password: values.password }));
+      await unwrap(
+        api.post("/auth/register", {
+          username: values.username,
+          password: values.password,
+          role: values.role || "tourist",
+        })
+      );
       message.success("注册成功，请登录");
     } catch (e: any) {
       message.error(e.message || "注册失败");
@@ -72,10 +78,13 @@ export default function Login() {
         }}
       >
         <EnvironmentOutlined style={{ fontSize: 60, marginBottom: 24 }} />
-        <Typography.Title style={{ color: "#fff", fontSize: 42, marginBottom: 16 }}>
-          文旅多 Agent 行程规划系统
+        <Typography.Title style={{ color: "#fff", fontSize: 52, marginBottom: 8, letterSpacing: 6, fontWeight: 700 }}>
+          山海行
         </Typography.Title>
-        <Typography.Paragraph style={{ color: "rgba(255,255,255,0.85)", fontSize: 18, maxWidth: 500 }}>
+        <Typography.Text style={{ color: "rgba(255,255,255,0.9)", fontSize: 16, letterSpacing: 2 }}>
+          文旅多 Agent 行程规划系统
+        </Typography.Text>
+        <Typography.Paragraph style={{ color: "rgba(255,255,255,0.75)", fontSize: 16, maxWidth: 500, marginTop: 20 }}>
           输入一句自然语言需求，AI Agent 团队自动完成偏好解析、网页调研、舆情评估、日程编排与预算计算。
         </Typography.Paragraph>
         <Space>
@@ -112,15 +121,23 @@ export default function Login() {
                 key: "register",
                 label: "注册",
                 children: (
-                  <Form onFinish={onRegister} size="large">
+                  <Form onFinish={onRegister} size="large" initialValues={{ role: "tourist" }}>
                     <Form.Item name="username" rules={[{ required: true, min: 3, message: "至少 3 个字符" }]}>
-                      <Input prefix={<UserOutlined />} placeholder="用户名（顾问账号）" />
+                      <Input prefix={<UserOutlined />} placeholder="用户名" />
                     </Form.Item>
                     <Form.Item name="password" rules={[{ required: true, min: 6, message: "至少 6 位" }]}>
                       <Input.Password prefix={<LockOutlined />} placeholder="密码" />
                     </Form.Item>
+                    <Form.Item name="role" label="注册身份">
+                      <Select
+                        options={[
+                          { value: "tourist", label: "游客（自助规划行程）" },
+                          { value: "advisor", label: "旅行顾问（替客户规划）" },
+                        ]}
+                      />
+                    </Form.Item>
                     <Button type="primary" htmlType="submit" loading={loading} block>
-                      注册顾问账号
+                      注册账号
                     </Button>
                   </Form>
                 ),

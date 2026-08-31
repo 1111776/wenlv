@@ -46,6 +46,7 @@ export default function PlanNew() {
     try {
       const payload: any = {
         query: values.query,
+        origin: values.origin,
         destination: values.destination,
         days: values.days,
         budget_limit: values.budget_limit,
@@ -54,8 +55,13 @@ export default function PlanNew() {
       // 日期转字符串（后端存 YYYY-MM-DD）
       if (values.start_date) payload.start_date = values.start_date.format("YYYY-MM-DD");
       if (values.end_date) payload.end_date = values.end_date.format("YYYY-MM-DD");
-      if (values.adults || values.children) {
-        payload.party = { adults: values.adults || 1, children: values.children || 0 };
+      if (values.adults || values.children || values.elders) {
+        payload.party = {
+          adults: values.adults || 1,
+          children: values.children || 0,
+          elders: values.elders || 0,
+          elder_status: values.elder_status || null,
+        };
       }
       const data = await unwrap<any>(api.post("/plans", payload));
       setCreatedId(data.plan_id);
@@ -127,10 +133,23 @@ export default function PlanNew() {
 
             <Row gutter={16}>
               <Col span={8}>
+                <Form.Item name="origin" label="出发地">
+                  <Input placeholder="例如：北京" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
                 <Form.Item name="destination" label="目的地">
                   <Input placeholder="云南" />
                 </Form.Item>
               </Col>
+              <Col span={8}>
+                <Form.Item name="budget_limit" label="预算上限（元）">
+                  <InputNumber min={1} style={{ width: "100%" }} placeholder="15000" />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={16}>
               <Col span={8}>
                 <Form.Item name="start_date" label="出发日期">
                   <DatePicker style={{ width: "100%" }} onChange={onDateChange} placeholder="选择出发日期" />
@@ -141,33 +160,48 @@ export default function PlanNew() {
                   <DatePicker style={{ width: "100%" }} onChange={onDateChange} placeholder="选择返程日期" />
                 </Form.Item>
               </Col>
-            </Row>
-
-            <Row gutter={16}>
               <Col span={8}>
                 <Form.Item name="days" label="天数（选日期自动算）">
                   <InputNumber min={1} max={30} style={{ width: "100%" }} placeholder="7" />
                 </Form.Item>
               </Col>
-              <Col span={8}>
-                <Form.Item name="budget_limit" label="预算上限（元）">
-                  <InputNumber min={1} style={{ width: "100%" }} placeholder="15000" />
-                </Form.Item>
-              </Col>
+            </Row>
+
+            <Row gutter={16}>
               <Col span={8}>
                 <Form.Item name="adults" label="成人">
                   <InputNumber min={1} max={20} style={{ width: "100%" }} placeholder="2" />
                 </Form.Item>
               </Col>
-            </Row>
-
-            <Row gutter={16}>
               <Col span={8}>
                 <Form.Item name="children" label="儿童">
                   <InputNumber min={0} max={20} style={{ width: "100%" }} placeholder="1" />
                 </Form.Item>
               </Col>
               <Col span={8}>
+                <Form.Item name="elders" label="老人">
+                  <InputNumber min={0} max={20} style={{ width: "100%" }} placeholder="0" />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="elder_status" label="老人生活状态">
+                  <Select
+                    allowClear
+                    placeholder="选择状态（可选）"
+                    options={[
+                      { value: "健康", label: "健康" },
+                      { value: "行动不便", label: "行动不便" },
+                      { value: "需轮椅", label: "需轮椅" },
+                      { value: "慢病需注意", label: "慢病需注意" },
+                      { value: "需常休息", label: "需常休息" },
+                    ]}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={16}>
                 <Form.Item name="tags" label="兴趣标签">
                   <Select
                     mode="tags"

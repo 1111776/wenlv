@@ -120,9 +120,9 @@ async def search(
     db: AsyncSession = Depends(get_db),
     q: str = Query(..., min_length=1),
 ):
-    """记忆检索（advisor 限本人域）。"""
+    """记忆检索（顾问/游客限本人域）。"""
     user = request.state.user
-    results = await engine.retrieve(q, user_id=user["id"] if user["role"] == "advisor" else None)
+    results = await engine.retrieve(q, user_id=user["id"] if user["role"] in ("advisor", "tourist") else None)
     return ok({"items": results})
 
 
