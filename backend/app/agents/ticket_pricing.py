@@ -57,3 +57,34 @@ def meal_price(name: str, poi_type: str = "") -> int:
         return _price(70, seed)
     # 默认
     return _price(60, seed)
+
+
+def ticket_prices_by_party(name: str, poi_type: str, adults: int, children: int, elders: int) -> dict:
+    """按出行人结构计算景点门票，区分成人票/儿童票/老人票。
+
+    折扣比例可配（settings）：
+    - 成人票 = ticket_price（基准价）
+    - 儿童票 = 基准价 × ticket_child_discount（默认 0.5 半价）
+    - 老人票 = 基准价 × ticket_elder_discount（默认 0.0 免费，可配）
+
+    返回：{adult_price, child_price, elder_price, adult_total, child_total, elder_total, total}
+    """
+    from app.core.config import settings
+
+    base = ticket_price(name, poi_type) or 0
+    child = int(round(base * settings.ticket_child_discount))
+    elder = int(round(base * settings.ticket_elder_discount))
+
+    adults = max(int(adults or 0), 0)
+    children = max(int(children or 0), 0)
+    elders = max(int(elders or 0), 0)
+
+    return {
+        "adult_price": base,
+        "child_price": child,
+        "elder_price": elder,
+        "adult_total": base * adults,
+        "child_total": child * children,
+        "elder_total": elder * elders,
+        "total": base * adults + child * children + elder * elders,
+    }

@@ -105,9 +105,12 @@ function SpotItem({ spot, tagColor, tagText, people = 1 }: { spot: any; tagColor
             🕐 营业时间：{spot.opentime}
           </div>
         )}
-        {spot.price != null && spot.price > 0 && (
+        {spot.ticket && spot.ticket.total > 0 && (
           <div style={{ color: "#fa541c", fontSize: 12, marginTop: 2 }}>
-            💰 门票：¥{spot.price}/人 × {people}人 = <b>¥{spot.price * people}</b>
+            💰 门票：成人 ¥{spot.ticket.adult_price}
+            {spot.ticket.child_total > 0 && ` / 儿童 ¥${spot.ticket.child_price}`}
+            {" / 老人免费"}
+            {" "}= <b>¥{spot.ticket.total}</b>
           </div>
         )}
         {spot.route && (

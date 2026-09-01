@@ -192,6 +192,12 @@ def _build_report_markdown(
     party = prefs.get("party") or {}
     tags = prefs.get("tags") or []
 
+    # 出行总人数（成人+儿童+老人），用于票价/门票/餐饮按人数计
+    _adults = prefs.get("adults", party.get("adults", 1))
+    _children = prefs.get("children", party.get("children", 0))
+    _elders = prefs.get("elders", party.get("elders", 0))
+    people = max(int(_adults or 1) + int(_children or 0) + int(_elders or 0), 1)
+
     lines: list[str] = []
     lines.append(f"# {destination} 行程计划报告")
     lines.append("")
@@ -272,7 +278,8 @@ def _build_report_markdown(
         if t.get("method"):
             lines.append(f"| 交通方式 | {t['method']} |")
         if t.get("price"):
-            lines.append(f"| 票价 | ¥{t['price']} |")
+            tp = t.get("total_price")
+            lines.append(f"| 票价 | ¥{t['price']}/人 × {people}人 = **¥{tp}** |" if tp else f"| 票价 | ¥{t['price']}/人 |")
         if t.get("duration"):
             lines.append(f"| 耗时 | {t['duration']} |")
         if t.get("depart_time"):
@@ -288,7 +295,8 @@ def _build_report_markdown(
             if t.get("return_method"):
                 lines.append(f"| 交通方式 | {t['return_method']} |")
             if t.get("return_price"):
-                lines.append(f"| 票价 | ¥{t['return_price']} |")
+                rp = t.get("return_total_price")
+                lines.append(f"| 票价 | ¥{t['return_price']}/人 × {people}人 = **¥{rp}** |" if rp else f"| 票价 | ¥{t['return_price']}/人 |")
             if t.get("return_duration"):
                 lines.append(f"| 耗时 | {t['return_duration']} |")
             lines.append("")
@@ -311,17 +319,36 @@ def _build_report_markdown(
     if itinerary and itinerary.get("daily_plan"):
         lines.append(f"## {_sec(sec)}、每日行程计划（高德真实数据）")
         lines.append("")
+        def _spot_price(spot) -> str:
+            """门票：分成人/儿童/老人票。"""
+            t = spot.get("ticket")
+            if t:
+                parts = []
+                if t.get("adult_total") or (t.get("adult_price") and _adults):
+                    parts.append(f"成人 ¥{t['adult_price']}×{_adults}={t['adult_total']}")
+                if t.get("child_total"):
+                    parts.append(f"儿童 ¥{t['child_price']}×{_children}={t['child_total']}")
+                if _elders:
+                    parts.append(f"老人 免费×{_elders}=0")
+                if parts:
+                    return "；".join(parts) + f"（合计¥{t['total']}）"
+                return f"¥{t['total']}"
+            p = spot.get("price")
+            if not p:
+                return ""
+            return f"¥{p}/人 × {people}人 = ¥{p * people}"
+
         for day in itinerary["daily_plan"]:
             lines.append(f"### 第 {day['day']} 天")
             lines.append("")
-            lines.append("| 时段 | 景点 | 地址 | 营业时间 | 到下一点路线 |")
-            lines.append("| --- | --- | --- | --- | --- |")
+            lines.append("| 时段 | 景点 | 地址 | 门票 | 营业时间 | 到下一点路线 |")
+            lines.append("| --- | --- | --- | --- | --- | --- |")
             m = day["morning"]
             a = day["afternoon"]
             e = day["evening"]
-            lines.append(f"| 🌅 上午 | **{m.get('spot','-')}** | {m.get('address','')} | {_short_time(m.get('opentime',''))} | {_route_str(m.get('route'))} |")
-            lines.append(f"| ☀️ 下午 | **{a.get('spot','-')}** | {a.get('address','')} | {_short_time(a.get('opentime',''))} | {_route_str(a.get('route'))} |")
-            lines.append(f"| 🌙 晚上 | **{e.get('spot','-')}** | {e.get('address','')} | {_short_time(e.get('opentime',''))} | — |")
+            lines.append(f"| 🌅 上午 | **{m.get('spot','-')}** | {m.get('address','')} | {_spot_price(m)} | {_short_time(m.get('opentime',''))} | {_route_str(m.get('route'))} |")
+            lines.append(f"| ☀️ 下午 | **{a.get('spot','-')}** | {a.get('address','')} | {_spot_price(a)} | {_short_time(a.get('opentime',''))} | {_route_str(a.get('route'))} |")
+            lines.append(f"| 🌙 晚上 | **{e.get('spot','-')}** | {e.get('address','')} | {_spot_price(e)} | {_short_time(e.get('opentime',''))} | — |")
             lines.append("")
 
             # 餐饮安排
@@ -329,14 +356,20 @@ def _build_report_markdown(
             if meals and any(meals.values()):
                 lines.append("**🍽️ 餐饮安排：**")
                 lines.append("")
-                lines.append("| 餐次 | 餐厅 | 地址 | 营业时间 |")
-                lines.append("| --- | --- | --- | --- |")
+                lines.append("| 餐次 | 餐厅 | 地址 | 人均×人数 | 营业时间 |")
+                lines.append("| --- | --- | --- | --- | --- |")
                 if meals.get("breakfast"):
-                    lines.append(f"| 早餐 | {meals['breakfast'].get('name','-')} | {meals['breakfast'].get('address','')} | {_short_time(meals['breakfast'].get('opentime',''))} |")
+                    mp = meals['breakfast'].get('price')
+                    mp_str = f"¥{mp} × {people}人 = ¥{mp * people}" if mp else "—"
+                    lines.append(f"| 早餐 | {meals['breakfast'].get('name','-')} | {meals['breakfast'].get('address','')} | {mp_str} | {_short_time(meals['breakfast'].get('opentime',''))} |")
                 if meals.get("lunch"):
-                    lines.append(f"| 午餐 | {meals['lunch'].get('name','-')} | {meals['lunch'].get('address','')} | {_short_time(meals['lunch'].get('opentime',''))} |")
+                    mp = meals['lunch'].get('price')
+                    mp_str = f"¥{mp} × {people}人 = ¥{mp * people}" if mp else "—"
+                    lines.append(f"| 午餐 | {meals['lunch'].get('name','-')} | {meals['lunch'].get('address','')} | {mp_str} | {_short_time(meals['lunch'].get('opentime',''))} |")
                 if meals.get("dinner"):
-                    lines.append(f"| 晚餐 | {meals['dinner'].get('name','-')} | {meals['dinner'].get('address','')} | {_short_time(meals['dinner'].get('opentime',''))} |")
+                    mp = meals['dinner'].get('price')
+                    mp_str = f"¥{mp} × {people}人 = ¥{mp * people}" if mp else "—"
+                    lines.append(f"| 晚餐 | {meals['dinner'].get('name','-')} | {meals['dinner'].get('address','')} | {mp_str} | {_short_time(meals['dinner'].get('opentime',''))} |")
                 lines.append("")
         sec += 1
     else:

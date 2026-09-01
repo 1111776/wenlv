@@ -55,6 +55,8 @@ def _collect_pois(tasks: list[AgentTask]) -> tuple[list[dict], list[dict]]:
             continue
         keyword = t.result.get("keyword", "")
         is_food = keyword == "餐厅" or "餐厅" in keyword or "美食" in keyword
+        is_hotel = "酒店" in keyword or "住宿" in keyword
+        is_transport = "地铁" in keyword or "交通" in keyword or "站" in keyword
 
         for p in t.result.get("pois", []):
             name = p.get("name")
@@ -68,6 +70,9 @@ def _collect_pois(tasks: list[AgentTask]) -> tuple[list[dict], list[dict]]:
             p = {**p, "_keyword": keyword}
             if is_food:
                 restaurants.append(p)
+            elif is_hotel or is_transport:
+                # 酒店/地铁站等不进 daily_plan（酒店在酒店推荐章节，交通是设施非景点），跳过
+                continue
             else:
                 attractions.append(p)
 
@@ -82,10 +87,10 @@ async def _route_between(origin, destination) -> dict | None:
         return None
 
 
-async def _estimate_transport(origin: str, destination: str, people: int = 1) -> dict | None:
+async def _estimate_transport(origin: str, destination: str, people: int = 1, adults: int = 1, children: int = 0, elders: int = 0) -> dict | None:
     """用 LLM 规划出发地到目的地的完整交通方案（去程/返程/途中建议/票价）。
 
-    price 为单人票价，额外返回 total_price（单人价 × 人数）。
+    price 为【成人】票价，按配置折扣算儿童/老人价，返回分档总价。
     高德不提供票价，用 LLM 给合理方案。失败返回 None（不阻塞主流程）。
     """
     try:
@@ -123,15 +128,39 @@ async def _estimate_transport(origin: str, destination: str, people: int = 1) ->
         )
         info = result.structured
         if isinstance(info, dict) and info.get("method"):
-            info["people"] = people
-            # 算总价：单人价 × 人数（价格字段是字符串，做安全转换）
-            def _mul(s, n):
+            from app.core.config import settings
+
+            adults = max(int(adults or 0), 0)
+            children = max(int(children or 0), 0)
+            elders = max(int(elders or 0), 0)
+
+            def _num(s):
                 try:
-                    return int(round(float(s) * n))
+                    return float(s)
                 except (ValueError, TypeError):
-                    return s
-            info["total_price"] = _mul(info.get("price", 0), people)
-            info["return_total_price"] = _mul(info.get("return_price", 0), people)
+                    return 0.0
+
+            def _tiered(base_price):
+                """按成人/儿童/老人折扣算分档总价。"""
+                adult_p = _num(base_price)
+                child_p = int(round(adult_p * settings.transport_child_discount))
+                elder_p = int(round(adult_p * settings.transport_elder_discount))
+                return {
+                    "adult_price": int(round(adult_p)),
+                    "child_price": child_p,
+                    "elder_price": elder_p,
+                    "adult_total": int(round(adult_p)) * adults,
+                    "child_total": child_p * children,
+                    "elder_total": elder_p * elders,
+                    "total": int(round(adult_p)) * adults + child_p * children + elder_p * elders,
+                }
+
+            info["people"] = people
+            info["ticket"] = _tiered(info.get("price", 0))  # 去程分档
+            info["return_ticket"] = _tiered(info.get("return_price", 0))  # 返程分档
+            # 兼容旧字段：total_price = 去程总价
+            info["total_price"] = info["ticket"]["total"]
+            info["return_total_price"] = info["return_ticket"]["total"]
             return info
         return None
     except Exception as exc:
@@ -208,9 +237,15 @@ async def itinerary_node(state: TravelState) -> dict:
         route_map[(day_idx, seg)] = res if not isinstance(res, Exception) else None
 
     # 组装 daily_plan（景点 + 三餐餐饮）
-    from app.agents.ticket_pricing import meal_price, ticket_price
+    from app.agents.ticket_pricing import meal_price, ticket_prices_by_party
+
+    # 出行人结构（用于门票分成人/儿童/老人价）
+    _adults = preferences.get("adults", preferences.get("party", {}).get("adults", 1))
+    _children = preferences.get("children", preferences.get("party", {}).get("children", 0))
+    _elders = preferences.get("elders", preferences.get("party", {}).get("elders", 0))
 
     def _fmt_spot(poi, route_to_next):
+        tp = ticket_prices_by_party(poi["name"], poi.get("type", ""), _adults, _children, _elders)
         return {
             "spot": poi["name"],
             "address": poi.get("address", ""),
@@ -219,7 +254,8 @@ async def itinerary_node(state: TravelState) -> dict:
             "opentime": poi.get("opentime", ""),
             "rating": poi.get("rating", ""),
             "photo": poi.get("photo", ""),
-            "price": ticket_price(poi["name"], poi.get("type", "")),
+            "ticket": tp,  # 门票分档结构（成人/儿童/老人）
+            "price": tp["total"],  # 门票总价（兼容旧的 price 字段）
         }
 
     def _fmt_meal(poi):
@@ -230,7 +266,7 @@ async def itinerary_node(state: TravelState) -> dict:
             "opentime": poi.get("opentime", ""),
             "rating": poi.get("rating", ""),
             "photo": poi.get("photo", ""),
-            "price": meal_price(poi["name"], poi.get("type", "")),
+            "price": meal_price(poi["name"], poi.get("type", "")),  # 人均价
         }
 
     for day_idx, (am, pm, ev) in enumerate(spots_per_day):
@@ -280,7 +316,10 @@ async def itinerary_node(state: TravelState) -> dict:
     if origin and destination:
         try:
             people = _party_size(preferences)
-            transport_info = await _estimate_transport(origin, destination, people)
+            _a = preferences.get("adults", preferences.get("party", {}).get("adults", 1))
+            _c = preferences.get("children", preferences.get("party", {}).get("children", 0))
+            _e = preferences.get("elders", preferences.get("party", {}).get("elders", 0))
+            transport_info = await _estimate_transport(origin, destination, people, _a, _c, _e)
         except Exception:
             transport_info = None
 
