@@ -26,6 +26,19 @@ from app.services.amap import AmapError, driving_route, geocode
 logger = get_logger(__name__)
 
 
+def _party_size(preferences: dict) -> int:
+    """计算出行总人数（成人+儿童+老人），最少 1 人。"""
+    adults = preferences.get("adults")
+    children = preferences.get("children", 0)
+    elders = preferences.get("elders", 0)
+    if adults is None:
+        party = preferences.get("party") or {}
+        adults = party.get("adults", 1)
+        children = party.get("children", 0)
+        elders = party.get("elders", 0)
+    return max(int(adults or 1) + int(children or 0) + int(elders or 0), 1)
+
+
 def _collect_pois(tasks: list[AgentTask]) -> tuple[list[dict], list[dict]]:
     """从 web_research 任务结果里汇总真实 POI，按类别分成「景点」和「餐厅」。
 
@@ -69,9 +82,10 @@ async def _route_between(origin, destination) -> dict | None:
         return None
 
 
-async def _estimate_transport(origin: str, destination: str) -> dict | None:
+async def _estimate_transport(origin: str, destination: str, people: int = 1) -> dict | None:
     """用 LLM 规划出发地到目的地的完整交通方案（去程/返程/途中建议/票价）。
 
+    price 为单人票价，额外返回 total_price（单人价 × 人数）。
     高德不提供票价，用 LLM 给合理方案。失败返回 None（不阻塞主流程）。
     """
     try:
@@ -82,14 +96,15 @@ async def _estimate_transport(origin: str, destination: str) -> dict | None:
                     "transport",
                     "规划两个城市之间的往返交通，严格输出 JSON，字段："
                     '{"method":"去程交通方式(高铁/火车/大巴/飞机/自驾)",'
-                    '"price":"去程票价(元)",'
+                    '"price":"去程单人票价(元，数字)",'
                     '"duration":"去程耗时",'
                     '"depart_time":"建议出发时间",'
-                    '"on_the_way":"途中建议/路上做什么(如:可沿途看风景、带零食、提前取票等)",'
-                    '"return_method":"返程交通方式","return_price":"返程票价",'
+                    '"on_the_way":"途中建议/路上做什么",'
+                    '"return_method":"返程交通方式","return_price":"返程单人票价(元，数字)",'
                     '"return_duration":"返程耗时","note":"总述"}'
+                    "注意：price 和 return_price 都是【单人】票价数字。"
                 )},
-                {"role": "user", "content": f"从{origin}到{destination}，怎么去，往返票价多少，路上做什么？"},
+                {"role": "user", "content": f"从{origin}到{destination}，{people}人出行，怎么去，单人往返票价多少，路上做什么？"},
             ],
             schema={
                 "type": "object",
@@ -108,6 +123,15 @@ async def _estimate_transport(origin: str, destination: str) -> dict | None:
         )
         info = result.structured
         if isinstance(info, dict) and info.get("method"):
+            info["people"] = people
+            # 算总价：单人价 × 人数（价格字段是字符串，做安全转换）
+            def _mul(s, n):
+                try:
+                    return int(round(float(s) * n))
+                except (ValueError, TypeError):
+                    return s
+            info["total_price"] = _mul(info.get("price", 0), people)
+            info["return_total_price"] = _mul(info.get("return_price", 0), people)
             return info
         return None
     except Exception as exc:
@@ -255,7 +279,8 @@ async def itinerary_node(state: TravelState) -> dict:
     transport_info = None
     if origin and destination:
         try:
-            transport_info = await _estimate_transport(origin, destination)
+            people = _party_size(preferences)
+            transport_info = await _estimate_transport(origin, destination, people)
         except Exception:
             transport_info = None
 

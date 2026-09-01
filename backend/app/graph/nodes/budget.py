@@ -21,17 +21,39 @@ from app.models.agent_task import TASK_STATUS
 logger = get_logger(__name__)
 
 
-def _build_budget_items(destination: str, days: int) -> list[dict]:
-    """确定性预算项（酒店用虚拟房价，其余固定）。"""
+def _party_size(preferences: dict) -> int:
+    """计算出行总人数（成人+儿童+老人）。
+
+    优先从 preferences 顶层字段（Intake LLM 解析的 adults/children/elders），
+    否则从 party 结构化字段。最少 1 人。
+    """
+    adults = preferences.get("adults")
+    children = preferences.get("children", 0)
+    elders = preferences.get("elders", 0)
+
+    if adults is None:
+        party = preferences.get("party") or {}
+        adults = party.get("adults", 1)
+        children = party.get("children", 0)
+        elders = party.get("elders", 0)
+
+    return max(int(adults or 1) + int(children or 0) + int(elders or 0), 1)
+
+
+def _build_budget_items(destination: str, days: int, people: int) -> list[dict]:
+    """预算项按人数累加（交通/门票/餐饮都 × 人数；酒店按房数估算）。"""
     hotel_nights = max(days - 1, 1)  # 住宿晚数 = 天数 - 1（N 天住 N-1 晚）
     hotel_cost = hotel_total(destination, hotel_nights)
+    # 住宿：按人数折算房间数（2人一间，向上取整）
+    rooms = max((people + 1) // 2, 1)
+    hotel_cost = hotel_cost * rooms
 
     return [
-        {"category": "traffic", "item": "往返交通", "amount": 2000},
-        {"category": "hotel", "item": f"住宿 {hotel_nights} 晚", "amount": hotel_cost},
-        {"category": "ticket", "item": "景点门票", "amount": 150 * days},
-        {"category": "food", "item": "餐饮", "amount": 200 * days},
-        {"category": "other", "item": "其他", "amount": 300},
+        {"category": "traffic", "item": f"往返交通（{people}人）", "amount": 1000 * people},
+        {"category": "hotel", "item": f"住宿 {hotel_nights} 晚（{rooms}间）", "amount": hotel_cost},
+        {"category": "ticket", "item": f"景点门票（{people}人）", "amount": 150 * days * people},
+        {"category": "food", "item": f"餐饮（{people}人）", "amount": 200 * days * people},
+        {"category": "other", "item": "其他", "amount": 300 * people},
     ]
 
 
@@ -42,8 +64,9 @@ async def budget_node(state: TravelState) -> dict:
     days = preferences.get("days", 7)
     destination = preferences.get("destination") or "目的地"
     budget_limit = preferences.get("budget_limit") or 15000
+    people = _party_size(preferences)
 
-    items = _build_budget_items(destination, days)
+    items = _build_budget_items(destination, days, people)
     total = sum(i["amount"] for i in items)
     over_ratio = (total - budget_limit) / budget_limit if budget_limit else 0.0
 

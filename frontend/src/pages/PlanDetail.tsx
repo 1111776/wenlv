@@ -75,7 +75,7 @@ function fmtDuration(route: any): string {
 }
 
 // 单个景点的展示项（图片 + 名称 + 地址 + 营业时间 + 到下一点路线）
-function SpotItem({ spot, tagColor, tagText }: { spot: any; tagColor: string; tagText: string }) {
+function SpotItem({ spot, tagColor, tagText, people = 1 }: { spot: any; tagColor: string; tagText: string; people?: number }) {
   return (
     <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
       {spot.photo && (
@@ -107,7 +107,7 @@ function SpotItem({ spot, tagColor, tagText }: { spot: any; tagColor: string; ta
         )}
         {spot.price != null && spot.price > 0 && (
           <div style={{ color: "#fa541c", fontSize: 12, marginTop: 2 }}>
-            💰 门票参考价：¥{spot.price}
+            💰 门票：¥{spot.price}/人 × {people}人 = <b>¥{spot.price * people}</b>
           </div>
         )}
         {spot.route && (
@@ -121,7 +121,7 @@ function SpotItem({ spot, tagColor, tagText }: { spot: any; tagColor: string; ta
 }
 
 // 餐饮项展示
-function MealItem({ label, meal }: { label: string; meal: any }) {
+function MealItem({ label, meal, people = 1 }: { label: string; meal: any; people?: number }) {
   return (
     <div style={{ display: "flex", gap: 10, alignItems: "flex-start", minWidth: 220 }}>
       {meal.photo && (
@@ -146,7 +146,7 @@ function MealItem({ label, meal }: { label: string; meal: any }) {
           <div style={{ color: "#d48806", fontSize: 12, marginTop: 2 }}>🕐 {meal.opentime}</div>
         )}
         {meal.price != null && meal.price > 0 && (
-          <div style={{ color: "#fa541c", fontSize: 12, marginTop: 2 }}>💰 人均参考价：¥{meal.price}</div>
+          <div style={{ color: "#fa541c", fontSize: 12, marginTop: 2 }}>💰 人均：¥{meal.price} × {people}人 = <b>¥{meal.price * people}</b></div>
         )}
       </div>
     </div>
@@ -220,6 +220,13 @@ export default function PlanDetail() {
 
   if (!agents) return <Card loading style={{ minHeight: 300 }} />;
 
+  // 出行总人数（用于票价/门票/餐饮 × 人数）
+  const prefs = agents.preferences || {};
+  const adults = prefs.adults ?? prefs.party?.adults ?? 1;
+  const children = prefs.children ?? prefs.party?.children ?? 0;
+  const elders = prefs.elders ?? prefs.party?.elders ?? 0;
+  const peopleCount = Math.max(Number(adults) + Number(children) + Number(elders), 1);
+
   const statusMeta: Record<string, { color: string; label: string }> = {
     planning: { color: "blue", label: "排队中" },
     running: { color: "processing", label: "执行中" },
@@ -262,7 +269,13 @@ export default function PlanDetail() {
                       <Typography.Text strong>🚌 去程</Typography.Text>
                       <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: "8px 20px" }}>
                         {agents.itinerary.transport.method && <span>方式 <b>{agents.itinerary.transport.method}</b></span>}
-                        {agents.itinerary.transport.price && <span>💰 票价 <b style={{ color: "#fa541c" }}>{agents.itinerary.transport.price}</b></span>}
+                        {agents.itinerary.transport.price && (
+                          <span>💰 票价 <b style={{ color: "#fa541c" }}>
+                            {agents.itinerary.transport.total_price != null
+                              ? `¥${agents.itinerary.transport.price}/人 × ${peopleCount}人 = ¥${agents.itinerary.transport.total_price}`
+                              : `¥${agents.itinerary.transport.price}`}
+                          </b></span>
+                        )}
                         {agents.itinerary.transport.duration && <span>⏱️ 耗时 <b>{agents.itinerary.transport.duration}</b></span>}
                         {agents.itinerary.transport.depart_time && <span>🕐 建议出发 <b>{agents.itinerary.transport.depart_time}</b></span>}
                       </div>
@@ -279,7 +292,13 @@ export default function PlanDetail() {
                         <Typography.Text strong>🏠 返程</Typography.Text>
                         <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: "8px 20px" }}>
                           <span>方式 <b>{agents.itinerary.transport.return_method}</b></span>
-                          {agents.itinerary.transport.return_price && <span>💰 票价 <b style={{ color: "#fa541c" }}>{agents.itinerary.transport.return_price}</b></span>}
+                          {agents.itinerary.transport.return_price && (
+                            <span>💰 票价 <b style={{ color: "#fa541c" }}>
+                              {agents.itinerary.transport.return_total_price != null
+                                ? `¥${agents.itinerary.transport.return_price}/人 × ${peopleCount}人 = ¥${agents.itinerary.transport.return_total_price}`
+                                : `¥${agents.itinerary.transport.return_price}`}
+                            </b></span>
+                          )}
                           {agents.itinerary.transport.return_duration && <span>⏱️ 耗时 <b>{agents.itinerary.transport.return_duration}</b></span>}
                         </div>
                       </div>
@@ -328,17 +347,17 @@ export default function PlanDetail() {
                   {
                     color: "blue",
                     dot: <EnvironmentOutlined />,
-                    children: <SpotItem spot={day.morning} tagColor="blue" tagText="上午" />,
+                    children: <SpotItem spot={day.morning} tagColor="blue" tagText="上午" people={peopleCount} />,
                   },
                   {
                     color: "green",
                     dot: <EnvironmentOutlined />,
-                    children: <SpotItem spot={day.afternoon} tagColor="green" tagText="下午" />,
+                    children: <SpotItem spot={day.afternoon} tagColor="green" tagText="下午" people={peopleCount} />,
                   },
                   {
                     color: "purple",
                     dot: <EnvironmentOutlined />,
-                    children: <SpotItem spot={day.evening} tagColor="purple" tagText="晚上" />,
+                    children: <SpotItem spot={day.evening} tagColor="purple" tagText="晚上" people={peopleCount} />,
                   },
                 ]}
               />
@@ -353,13 +372,13 @@ export default function PlanDetail() {
                   </Typography.Text>
                   <div style={{ marginTop: 8, display: "flex", gap: 24, flexWrap: "wrap" }}>
                     {day.meals.breakfast && (
-                      <MealItem label="早餐" meal={day.meals.breakfast} />
+                      <MealItem label="早餐" meal={day.meals.breakfast} people={peopleCount} />
                     )}
                     {day.meals.lunch && (
-                      <MealItem label="午餐" meal={day.meals.lunch} />
+                      <MealItem label="午餐" meal={day.meals.lunch} people={peopleCount} />
                     )}
                     {day.meals.dinner && (
-                      <MealItem label="晚餐" meal={day.meals.dinner} />
+                      <MealItem label="晚餐" meal={day.meals.dinner} people={peopleCount} />
                     )}
                   </div>
                 </Card>
