@@ -74,6 +74,16 @@ export default function PlanList() {
     }
   };
 
+  const onDelete = async (id: string) => {
+    try {
+      await unwrap(api.delete(`/plans/${id}`));
+      message.success("已删除");
+      load();
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
   const columns = [
     {
       title: "需求描述",
@@ -120,6 +130,13 @@ export default function PlanList() {
       render: (v: string) => dayjs(v).format("MM-DD HH:mm"),
     },
     {
+      title: "完成时间",
+      dataIndex: "completed_at",
+      key: "completed_at",
+      width: 140,
+      render: (v: string) => (v ? dayjs(v).format("MM-DD HH:mm") : "-"),
+    },
+    {
       title: "操作",
       key: "action",
       width: 160,
@@ -128,9 +145,12 @@ export default function PlanList() {
           <a onClick={() => navigate(`/plans/${r.id}`)}>详情</a>
           {!["completed", "failed", "cancelled"].includes(r.status) && (
             <Popconfirm title="确认取消该行程？" onConfirm={() => onCancel(r.id)}>
-              <a style={{ color: "#ff4d4f" }}>取消</a>
+              <a style={{ color: "#faad14" }}>取消</a>
             </Popconfirm>
           )}
+          <Popconfirm title="确认删除该行程？删除后不可恢复" onConfirm={() => onDelete(r.id)}>
+            <a style={{ color: "#ff4d4f" }}>删除</a>
+          </Popconfirm>
         </Space>
       ),
     },

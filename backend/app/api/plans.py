@@ -38,7 +38,7 @@ router = APIRouter(prefix="/plans", tags=["plans"])
 
 
 async def _progress(db: AsyncSession, plan_id: uuid.UUID) -> dict:
-    """计算 (done, total)。"""
+    """计算 (done, total)。done = 已处理（completed/blocked/failed），不含 pending/running。"""
     total = (
         await db.execute(
             select(func.count()).select_from(AgentTask).where(AgentTask.plan_id == plan_id)
@@ -50,7 +50,11 @@ async def _progress(db: AsyncSession, plan_id: uuid.UUID) -> dict:
             .select_from(AgentTask)
             .where(
                 AgentTask.plan_id == plan_id,
-                AgentTask.status.in_([TASK_STATUS["COMPLETED"], TASK_STATUS["BLOCKED"]]),
+                AgentTask.status.in_([
+                    TASK_STATUS["COMPLETED"],
+                    TASK_STATUS["BLOCKED"],
+                    TASK_STATUS["FAILED"],
+                ]),
             )
         )
     ).scalar_one()
@@ -169,6 +173,7 @@ async def list_plans(
                 resume_from=p.resume_from,
                 progress=progress,
                 created_at=p.created_at,
+                completed_at=p.completed_at,
             ).model_dump(mode="json")
         )
     return ok(PlanListOut(items=items, total=total).model_dump(mode="json"))
@@ -196,6 +201,7 @@ async def get_plan(plan_id: uuid.UUID, request: Request, db: AsyncSession = Depe
             state_version=plan.state_version,
             progress=progress,
             created_at=plan.created_at,
+            completed_at=plan.completed_at,
         ).model_dump(mode="json")
     )
 
@@ -385,6 +391,40 @@ def _review_status(plan: TravelPlan, review) -> str:
     if plan.status == PLAN_STATUS["COMPLETED"] and review and review.status == "rejected":
         return "rejected"
     return "pending"
+
+
+@router.delete("/{plan_id}")
+async def delete_plan(plan_id: uuid.UUID, request: Request, db: AsyncSession = Depends(get_db)):
+    """真正删除行程（顾问/游客 本人或 supervisor），从列表移除。"""
+    plan = await db.get(TravelPlan, plan_id)
+    if plan is None:
+        raise Err.NOT_FOUND.to_http()
+    user = request.state.user
+    if user["role"] in ("advisor", "tourist") and plan.user_id != user["id"]:
+        raise Err.FORBIDDEN.to_http()
+
+    # 删除关联表（agent_tasks/budget_records 有 CASCADE，但 review 等需显式删）
+    from app.models import AgentTask, BudgetRecord, ReviewRecord
+    from sqlalchemy import delete as sa_delete
+
+    await db.execute(sa_delete(ReviewRecord).where(ReviewRecord.plan_id == plan_id))
+    await db.execute(sa_delete(BudgetRecord).where(BudgetRecord.plan_id == plan_id))
+    await db.execute(sa_delete(AgentTask).where(AgentTask.plan_id == plan_id))
+    await db.delete(plan)
+    await db.commit()
+
+    # 清理 workspace 文件
+    try:
+        from app.services.workspace import PlanFileManager
+        import shutil
+        fm = PlanFileManager(plan_id)
+        if fm.dir.exists():
+            shutil.rmtree(fm.dir)
+    except Exception:
+        pass
+
+    await add_audit(db, action="plan_delete", actor_id=user["id"], plan_id=plan_id)
+    return ok({"plan_id": str(plan_id), "deleted": True})
 
 
 @router.post("/{plan_id}/cancel")

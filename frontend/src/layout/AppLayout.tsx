@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Layout, Menu, Avatar, Space, Typography, Dropdown } from "antd";
+import { Layout, Menu, Avatar, Space, Typography, Dropdown, Select } from "antd";
 import {
   EnvironmentOutlined,
   AuditOutlined,
@@ -10,9 +10,11 @@ import {
   PlusCircleOutlined,
   ReadOutlined,
   ApartmentOutlined,
+  GlobalOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import { useAuth } from "../store/auth";
+import { useI18n, LANG_OPTIONS } from "../i18n";
 import DynamicBackground from "../components/DynamicBackground";
 
 const { Header, Sider, Content } = Layout;
@@ -20,6 +22,7 @@ const { Header, Sider, Content } = Layout;
 // 专业后台布局：分组侧边栏 + 顶栏用户信息
 export default function AppLayout() {
   const { role, username, logout } = useAuth();
+  const { lang, setLang, t } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -28,45 +31,45 @@ export default function AppLayout() {
     const items: any[] = [
       {
         type: "group",
-        label: "总览",
+        label: t("dashboard"),
         children: [
-          { key: "/", icon: <DashboardOutlined />, label: "工作台" },
+          { key: "/", icon: <DashboardOutlined />, label: t("dashboard") },
         ],
       },
       {
         type: "group",
-        label: "行程管理",
+        label: t("planList"),
         children: [
-          { key: "/plans", icon: <UnorderedListOutlined />, label: "行程列表" },
-          { key: "/plans/new", icon: <PlusCircleOutlined />, label: "新建行程" },
+          { key: "/plans", icon: <UnorderedListOutlined />, label: t("planList") },
+          { key: "/plans/new", icon: <PlusCircleOutlined />, label: t("newPlan") },
         ],
       },
     ];
     if (role === "supervisor") {
       items.push({
         type: "group",
-        label: "审批协作",
+        label: t("reviewBoard"),
         children: [
-          { key: "/reviews", icon: <AuditOutlined />, label: "审核台" },
+          { key: "/reviews", icon: <AuditOutlined />, label: t("reviewBoard") },
         ],
       });
     }
     items.push({
       type: "group",
-      label: "记忆",
+      label: t("memoryGraph"),
       children: [
-        { key: "/memory", icon: <ApartmentOutlined />, label: "记忆图谱" },
+        { key: "/memory", icon: <ApartmentOutlined />, label: t("memoryGraph") },
       ],
     });
     items.push({
       type: "group",
-      label: "帮助",
+      label: t("about"),
       children: [
-        { key: "/about", icon: <ReadOutlined />, label: "系统说明" },
+        { key: "/about", icon: <ReadOutlined />, label: t("about") },
       ],
     });
     return items;
-  }, [role]);
+  }, [role, lang]);
 
   const roleLabel =
     role === "advisor" ? "旅行顾问" : role === "supervisor" ? "主管管理员" : "游客";
@@ -108,6 +111,16 @@ export default function AppLayout() {
           items={menuItems}
           onClick={({ key }) => navigate(key)}
         />
+        {/* 左下角多国语言切换 */}
+        <div style={{ position: "absolute", bottom: 16, left: 16, right: 16 }}>
+          <Select
+            value={lang}
+            onChange={setLang}
+            size="small"
+            style={{ width: "100%" }}
+            options={LANG_OPTIONS}
+          />
+        </div>
       </Sider>
 
       <Layout>

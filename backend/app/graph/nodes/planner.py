@@ -58,19 +58,8 @@ async def planner_node(state: TravelState) -> dict:
     preferences = state.get("preferences", {})
     destination = preferences.get("destination", "") or "目的地"
 
+    # 调研维度用内置模板（确定性，无需 LLM，提速）
     degraded = False
-    try:
-        llm = get_llm()
-        await llm.complete(
-            [
-                {"role": "system", "content": build_system_prompt("planner", "用 CoT 拆解调研任务")},
-                {"role": "user", "content": f"目的地：{destination}"},
-            ]
-        )
-    except Exception as exc:
-        logger.warning("Planner LLM 失败，内置维度降级：%s", exc)
-        degraded = True
-
     tasks = build_research_tasks(destination)
 
     async with session_scope() as db:

@@ -16,6 +16,22 @@ from app.graph.state import TravelState
 
 logger = get_logger(__name__)
 
+# LLM 解析偏好用的 JSON Schema
+_INTAKE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "origin": {"type": "string", "description": "出发地"},
+        "destination": {"type": "string", "description": "目的地"},
+        "days": {"type": "integer", "description": "行程天数"},
+        "budget_limit": {"type": "number", "description": "预算上限"},
+        "adults": {"type": "integer"},
+        "children": {"type": "integer"},
+        "elders": {"type": "integer"},
+        "tags": {"type": "array", "items": {"type": "string"}},
+    },
+}
+
+
 # 目的地匹配：中文地名（2~8 字）后跟"游/旅/行/之"；或英文单词（可含空格）
 _DEST_CN = re.compile(r"([一-龥]{2,8}?)(?:游|旅|之行|之旅|行)")
 _DEST_EN = re.compile(r"\b([A-Z][a-zA-Z]+(?:\s+[A-Za-z]+){0,2})\b")
@@ -90,25 +106,38 @@ async def intake_node(state: TravelState) -> dict:
         plan = await db.get(TravelPlan, uuid.UUID(plan_id))
         existing_prefs = dict(plan.preferences) if plan and plan.preferences else {}
 
-    # LLM 解析（Mock 返回空 structured，主要靠正则）
+    # LLM 解析偏好（传 schema，真正提取 origin/destination/days/budget 等）
     llm_prefs: dict = {}
     try:
         llm = get_llm()
         result = await llm.complete(
             [
-                {"role": "system", "content": build_system_prompt("intake", "解析旅行偏好")},
+                {"role": "system", "content": build_system_prompt(
+                    "intake",
+                    "解析旅行偏好，严格按以下 JSON 字段输出（不要用其他字段名）："
+                    "{\"origin\":\"出发地\",\"destination\":\"目的地\",\"days\":整数天数,"
+                    "\"budget_limit\":预算数字,\"adults\":成人,\"children\":儿童,"
+                    "\"elders\":老人,\"tags\":[\"兴趣\"]}。"
+                    "注意区分「从A到B」的 A 是出发地(origin)、B 是目的地(destination)。"
+                )},
                 {"role": "user", "content": query},
-            ]
+            ],
+            schema=_INTAKE_SCHEMA,
         )
         llm_prefs = result.structured or {}
+        if not isinstance(llm_prefs, dict):
+            llm_prefs = {}
     except Exception as exc:
         logger.warning("Intake LLM 失败，正则降级：%s", exc)
         degraded = True
 
     # 合并：正则 < 请求结构化字段 < LLM。过滤空值，保留已填写的结构化字段。
     fallback = _fallback_parse(query)
-    merged: dict = {**fallback, **{k: v for k, v in existing_prefs.items() if v not in (None, "", [])}, **llm_prefs}
-
+    merged: dict = {
+        **fallback,
+        **{k: v for k, v in existing_prefs.items() if v not in (None, "", [])},
+        **{k: v for k, v in llm_prefs.items() if v not in (None, "", [], {})},
+    }
     if degraded:
         merged["quality"] = "degraded"
 

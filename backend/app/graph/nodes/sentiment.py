@@ -57,18 +57,9 @@ async def sentiment_node(state: TravelState) -> dict:
             if score < settings.sentiment_min_score:
                 high_risk.append({"name": p.get("name"), "score": score, "category": p.get("type", "")})
 
-    # 舆情风险：真实高德数据无差评，默认 False；hitl_demo 时演示触发
+    # 舆情风险：真实高德数据无差评，默认 False（只有真的命中负面关键词才触发审核）
+    # 规则引擎打分，无需 LLM（提速）
     severe_found = len(high_risk) > 0
-    if settings.hitl_demo and not severe_found:
-        # 演示模式：人为注入一个舆情风险，触发 HITL 审核
-        severe_found = True
-        high_risk.append({"name": "(演示)示例景点", "score": 0.1, "category": "演示舆情风险"})
-
-    try:
-        llm = get_llm()
-        await llm.complete([{"role": "system", "content": build_system_prompt("sentiment", "舆情评估")}])
-    except Exception as exc:
-        logger.warning("Sentiment LLM 失败，本地规则降级：%s", exc)
 
     async with session_scope() as db:
         from sqlalchemy import delete

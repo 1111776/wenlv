@@ -73,10 +73,13 @@ class NodeContext:
         ]
 
     def progress(self, tasks: list[AgentTask] | None = None) -> dict:
-        """计算 (done, total)。"""
+        """计算 (done, total)。done = 已处理（completed/blocked/failed），不含 pending/running。"""
         if tasks is None:
             tasks = []
-        done = sum(1 for t in tasks if t.status in (TASK_STATUS["COMPLETED"], TASK_STATUS["BLOCKED"]))
+        done = sum(
+            1 for t in tasks
+            if t.status in (TASK_STATUS["COMPLETED"], TASK_STATUS["BLOCKED"], TASK_STATUS["FAILED"])
+        )
         return build_progress(done, len(tasks))
 
     # ------------------------------------------------------------------ #

@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
@@ -30,13 +31,8 @@ async def report_node(state: TravelState) -> dict:
     """生成完整报告并置 completed。"""
     plan_id = state["plan_id"]
 
+    # 报告用模板 + 前序数据汇总，无需 LLM（提速）
     degraded = False
-    try:
-        llm = get_llm()
-        await llm.complete([{"role": "system", "content": build_system_prompt("report", "报告生成")}])
-    except Exception as exc:
-        logger.warning("Report LLM 失败，模板降级：%s", exc)
-        degraded = True
 
     async with NodeContext(plan_id) as ctx:
         plan = ctx.plan
@@ -105,6 +101,8 @@ async def report_node(state: TravelState) -> dict:
                 result={"quality": "degraded" if degraded else "ok"},
             )
         )
+        # 记录真实完成时间
+        ctx.plan.completed_at = datetime.now(timezone.utc)
         await ctx.advance(
             status="completed",
             resume_from="report",
@@ -206,10 +204,19 @@ def _build_report_markdown(
     lines.append("")
     lines.append("| 项目 | 内容 |")
     lines.append("| --- | --- |")
+    origin = prefs.get("origin")
+    if origin:
+        lines.append(f"| 出发地 | **{origin}** |")
     lines.append(f"| 目的地 | **{destination}** |")
     lines.append(f"| 行程天数 | {days} 天 |")
     if party:
-        lines.append(f"| 出行人数 | {party.get('adults', '-')} 大 {party.get('children', 0)} 小 |")
+        p = party
+        parts = [f"{p.get('adults','-')} 大 {p.get('children',0)} 小"]
+        if p.get('elders'):
+            parts.append(f"{p['elders']} 老")
+        lines.append(f"| 出行人数 | {' '.join(parts)} |")
+        if p.get('elder_status'):
+            lines.append(f"| 老人状态 | {p['elder_status']} |")
     if tags:
         lines.append(f"| 兴趣偏好 | {'、'.join(tags)} |")
     lines.append(f"| 预算上限 | ¥{float(plan.budget_limit or 0):,.0f} |")
@@ -249,6 +256,45 @@ def _build_report_markdown(
 
     # 天气章节（已在上方输出，若存在）
     if weather_now or weather_forecast:
+        sec += 1
+
+    # 交通规划（出发地↔目的地，咋去咋回）
+    if itinerary and itinerary.get("transport") and origin:
+        t = itinerary["transport"]
+        lines.append(f"## {_sec(sec)}、往返交通规划")
+        lines.append("")
+        lines.append(f"- 出发地：**{origin}** ⇄ 目的地：**{destination}**")
+        lines.append("")
+        lines.append("**🚌 去程**")
+        lines.append("")
+        lines.append("| 项目 | 内容 |")
+        lines.append("| --- | --- |")
+        if t.get("method"):
+            lines.append(f"| 交通方式 | {t['method']} |")
+        if t.get("price"):
+            lines.append(f"| 票价 | ¥{t['price']} |")
+        if t.get("duration"):
+            lines.append(f"| 耗时 | {t['duration']} |")
+        if t.get("depart_time"):
+            lines.append(f"| 建议出发时间 | {t['depart_time']} |")
+        if t.get("on_the_way"):
+            lines.append(f"| 途中建议 | {t['on_the_way']} |")
+        lines.append("")
+        if t.get("return_method") or t.get("return_price"):
+            lines.append("**🏠 返程**")
+            lines.append("")
+            lines.append("| 项目 | 内容 |")
+            lines.append("| --- | --- |")
+            if t.get("return_method"):
+                lines.append(f"| 交通方式 | {t['return_method']} |")
+            if t.get("return_price"):
+                lines.append(f"| 票价 | ¥{t['return_price']} |")
+            if t.get("return_duration"):
+                lines.append(f"| 耗时 | {t['return_duration']} |")
+            lines.append("")
+        if t.get("note"):
+            lines.append(f"> 💡 {t['note']}")
+            lines.append("")
         sec += 1
 
     # 推荐路线

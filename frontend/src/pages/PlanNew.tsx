@@ -202,17 +202,11 @@ export default function PlanNew() {
                 </Form.Item>
               </Col>
               <Col span={16}>
-                <Form.Item name="tags" label="兴趣标签">
+                <Form.Item name="tags" label="兴趣爱好（自由填写）">
                   <Select
                     mode="tags"
-                    placeholder="自然风光 / 美食 / 亲子"
-                    options={[
-                      { value: "自然风光", label: "自然风光" },
-                      { value: "人文历史", label: "人文历史" },
-                      { value: "美食", label: "美食" },
-                      { value: "亲子", label: "亲子" },
-                      { value: "少购物", label: "少购物" },
-                    ]}
+                    placeholder="输入后回车，可填任意兴趣，如：滑雪 / 摄影 / 温泉 / 徒步"
+                    tokenSeparators={[",", "，"]}
                   />
                 </Form.Item>
               </Col>

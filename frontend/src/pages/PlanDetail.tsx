@@ -42,12 +42,36 @@ const TASK_STATUS: Record<string, { color: string; label: string }> = {
   failed: { color: "warning", label: "失败" },
 };
 
-// 格式化路线数据（距离/耗时）
+// 格式化路线数据（距离/耗时，>60分钟显示小时）
 function fmtRoute(route: any): string {
   if (!route) return "";
   const km = (route.distance / 1000).toFixed(1);
-  const min = Math.round(route.duration / 60);
-  return `${km}km · 约${min}分钟`;
+  const totalMin = Math.round(route.duration / 60);
+  if (totalMin >= 60) {
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    return m > 0 ? `${km}km · 约${h}小时${m}分钟` : `${km}km · 约${h}小时`;
+  }
+  return `${km}km · 约${totalMin}分钟`;
+}
+
+// 只返回距离
+function fmtDistance(route: any): string {
+  if (!route || !route.distance) return "—";
+  const km = route.distance / 1000;
+  return km >= 100 ? `${km.toFixed(0)} 公里` : `${km.toFixed(1)} 公里`;
+}
+
+// 只返回时间
+function fmtDuration(route: any): string {
+  if (!route || !route.duration) return "—";
+  const totalMin = Math.round(route.duration / 60);
+  if (totalMin >= 60) {
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    return m > 0 ? `${h} 小时 ${m} 分钟` : `${h} 小时`;
+  }
+  return `${totalMin} 分钟`;
 }
 
 // 单个景点的展示项（图片 + 名称 + 地址 + 营业时间 + 到下一点路线）
@@ -79,6 +103,11 @@ function SpotItem({ spot, tagColor, tagText }: { spot: any; tagColor: string; ta
         {spot.opentime && (
           <div style={{ color: "#d48806", fontSize: 12, marginTop: 2 }}>
             🕐 营业时间：{spot.opentime}
+          </div>
+        )}
+        {spot.price != null && spot.price > 0 && (
+          <div style={{ color: "#fa541c", fontSize: 12, marginTop: 2 }}>
+            💰 门票参考价：¥{spot.price}
           </div>
         )}
         {spot.route && (
@@ -115,6 +144,9 @@ function MealItem({ label, meal }: { label: string; meal: any }) {
         )}
         {meal.opentime && (
           <div style={{ color: "#d48806", fontSize: 12, marginTop: 2 }}>🕐 {meal.opentime}</div>
+        )}
+        {meal.price != null && meal.price > 0 && (
+          <div style={{ color: "#fa541c", fontSize: 12, marginTop: 2 }}>💰 人均参考价：¥{meal.price}</div>
         )}
       </div>
     </div>
@@ -211,6 +243,68 @@ export default function PlanDetail() {
               编辑行程
             </Button>
           </div>
+          {/* 出发地 → 目的地 交通规划 */}
+          {agents.itinerary.origin && (
+            <Card size="small" style={{ marginBottom: 12, background: "#e6f7ff", border: "1px solid #91d5ff" }}>
+              <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                <Space wrap>
+                  <CarOutlined style={{ color: "#1677ff" }} />
+                  <Typography.Text strong>出发交通规划：</Typography.Text>
+                  <Typography.Text strong style={{ color: "#1677ff" }}>
+                    {agents.itinerary.origin} ⇄ {agents.itinerary.destination}
+                  </Typography.Text>
+                </Space>
+
+                {agents.itinerary.transport ? (
+                  <>
+                    {/* 去程 */}
+                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 14px" }}>
+                      <Typography.Text strong>🚌 去程</Typography.Text>
+                      <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: "8px 20px" }}>
+                        {agents.itinerary.transport.method && <span>方式 <b>{agents.itinerary.transport.method}</b></span>}
+                        {agents.itinerary.transport.price && <span>💰 票价 <b style={{ color: "#fa541c" }}>{agents.itinerary.transport.price}</b></span>}
+                        {agents.itinerary.transport.duration && <span>⏱️ 耗时 <b>{agents.itinerary.transport.duration}</b></span>}
+                        {agents.itinerary.transport.depart_time && <span>🕐 建议出发 <b>{agents.itinerary.transport.depart_time}</b></span>}
+                      </div>
+                      {agents.itinerary.transport.on_the_way && (
+                        <div style={{ marginTop: 4, fontSize: 12, color: "#8c8c8c" }}>
+                          🎒 路上：{agents.itinerary.transport.on_the_way}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 返程 */}
+                    {agents.itinerary.transport.return_method && (
+                      <div style={{ background: "#fff", borderRadius: 8, padding: "10px 14px" }}>
+                        <Typography.Text strong>🏠 返程</Typography.Text>
+                        <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: "8px 20px" }}>
+                          <span>方式 <b>{agents.itinerary.transport.return_method}</b></span>
+                          {agents.itinerary.transport.return_price && <span>💰 票价 <b style={{ color: "#fa541c" }}>{agents.itinerary.transport.return_price}</b></span>}
+                          {agents.itinerary.transport.return_duration && <span>⏱️ 耗时 <b>{agents.itinerary.transport.return_duration}</b></span>}
+                        </div>
+                      </div>
+                    )}
+
+                    {agents.itinerary.transport.note && (
+                      <Typography.Text style={{ fontSize: 12, color: "#8c8c8c" }}>
+                        💡 {agents.itinerary.transport.note}
+                      </Typography.Text>
+                    )}
+                  </>
+                ) : (
+                  <Typography.Text style={{ fontSize: 12, color: "#999" }}>
+                    交通信息规划中…
+                  </Typography.Text>
+                )}
+
+                {agents.itinerary.origin_route && (
+                  <Typography.Text style={{ fontSize: 12, color: "#999" }}>
+                    自驾参考：{fmtDistance(agents.itinerary.origin_route)} / {fmtDuration(agents.itinerary.origin_route)}
+                  </Typography.Text>
+                )}
+              </Space>
+            </Card>
+          )}
           {/* 路线串联 */}
           {agents.itinerary.route && (
             <Card size="small" style={{ marginBottom: 16, background: "#f0f7ff" }}>

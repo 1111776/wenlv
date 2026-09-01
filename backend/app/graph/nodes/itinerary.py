@@ -21,7 +21,7 @@ from app.core.logging import get_logger
 from app.graph.state import TravelState
 from app.models import AgentTask
 from app.models.agent_task import TASK_STATUS
-from app.services.amap import AmapError, driving_route
+from app.services.amap import AmapError, driving_route, geocode
 
 logger = get_logger(__name__)
 
@@ -62,10 +62,56 @@ def _collect_pois(tasks: list[AgentTask]) -> tuple[list[dict], list[dict]]:
 
 
 async def _route_between(origin, destination) -> dict | None:
-    """高德路径规划，失败返回 None（降级为无路线数据）。"""
+    """高德路径规划，失败返回 None（降级为无路线数据，含超时）。"""
     try:
         return await driving_route(origin, destination)
-    except AmapError:
+    except Exception:
+        return None
+
+
+async def _estimate_transport(origin: str, destination: str) -> dict | None:
+    """用 LLM 规划出发地到目的地的完整交通方案（去程/返程/途中建议/票价）。
+
+    高德不提供票价，用 LLM 给合理方案。失败返回 None（不阻塞主流程）。
+    """
+    try:
+        llm = get_llm()
+        result = await llm.complete(
+            [
+                {"role": "system", "content": build_system_prompt(
+                    "transport",
+                    "规划两个城市之间的往返交通，严格输出 JSON，字段："
+                    '{"method":"去程交通方式(高铁/火车/大巴/飞机/自驾)",'
+                    '"price":"去程票价(元)",'
+                    '"duration":"去程耗时",'
+                    '"depart_time":"建议出发时间",'
+                    '"on_the_way":"途中建议/路上做什么(如:可沿途看风景、带零食、提前取票等)",'
+                    '"return_method":"返程交通方式","return_price":"返程票价",'
+                    '"return_duration":"返程耗时","note":"总述"}'
+                )},
+                {"role": "user", "content": f"从{origin}到{destination}，怎么去，往返票价多少，路上做什么？"},
+            ],
+            schema={
+                "type": "object",
+                "properties": {
+                    "method": {"type": "string"},
+                    "price": {"type": "string"},
+                    "duration": {"type": "string"},
+                    "depart_time": {"type": "string"},
+                    "on_the_way": {"type": "string"},
+                    "return_method": {"type": "string"},
+                    "return_price": {"type": "string"},
+                    "return_duration": {"type": "string"},
+                    "note": {"type": "string"},
+                },
+            },
+        )
+        info = result.structured
+        if isinstance(info, dict) and info.get("method"):
+            return info
+        return None
+    except Exception as exc:
+        logger.warning("交通票价估算失败：%s", exc)
         return None
 
 
@@ -75,6 +121,7 @@ async def itinerary_node(state: TravelState) -> dict:
     preferences = state.get("preferences", {})
     days = int(preferences.get("days") or 7)
     destination = preferences.get("destination") or "目的地"
+    origin = preferences.get("origin") or None  # 出发地（可选）
 
     # 节点入口读取干预补丁（D9：Agent 下一次决策优先采用干预后状态）
     excluded_attractions: list[str] = []
@@ -137,6 +184,8 @@ async def itinerary_node(state: TravelState) -> dict:
         route_map[(day_idx, seg)] = res if not isinstance(res, Exception) else None
 
     # 组装 daily_plan（景点 + 三餐餐饮）
+    from app.agents.ticket_pricing import meal_price, ticket_price
+
     def _fmt_spot(poi, route_to_next):
         return {
             "spot": poi["name"],
@@ -146,6 +195,7 @@ async def itinerary_node(state: TravelState) -> dict:
             "opentime": poi.get("opentime", ""),
             "rating": poi.get("rating", ""),
             "photo": poi.get("photo", ""),
+            "price": ticket_price(poi["name"], poi.get("type", "")),
         }
 
     def _fmt_meal(poi):
@@ -156,6 +206,7 @@ async def itinerary_node(state: TravelState) -> dict:
             "opentime": poi.get("opentime", ""),
             "rating": poi.get("rating", ""),
             "photo": poi.get("photo", ""),
+            "price": meal_price(poi["name"], poi.get("type", "")),
         }
 
     for day_idx, (am, pm, ev) in enumerate(spots_per_day):
@@ -188,12 +239,35 @@ async def itinerary_node(state: TravelState) -> dict:
     route_names = [d["morning"]["spot"] for d in daily_plan if d["morning"]["spot"]]
     route = f"{destination} → " + " → ".join(route_names) if route_names else destination
 
-    # 夜行风险：hitl_demo=true 时演示触发 HITL（真实数据下默认 False）
-    night_risk = settings.hitl_demo
+    # 出发地 → 目的地 路线（若填了出发地，用高德算 origin → 首个景点）
+    # 注意：捕获所有异常（含 httpx 超时），拿不到路线不阻塞主流程
+    origin_route = None
+    if origin and attractions:
+        try:
+            origin_loc = await geocode(origin)
+            first_spot = attractions[0]
+            if origin_loc and first_spot.get("location") and first_spot["location"] != (None, None):
+                origin_route = await driving_route(origin_loc, first_spot["location"])
+        except Exception:
+            origin_route = None
+
+    # 出发地到目的地的交通方式 + 票价（LLM 估算，高德不提供票价）
+    transport_info = None
+    if origin and destination:
+        try:
+            transport_info = await _estimate_transport(origin, destination)
+        except Exception:
+            transport_info = None
+
+    # 夜行风险：默认 False（真实数据下高德不返回夜行信息，不会误触发审核）
+    night_risk = False
 
     itinerary = {
         "days": days,
         "destination": destination,
+        "origin": origin,
+        "origin_route": origin_route,  # 出发地到首站的真实路线（距离/耗时）
+        "transport": transport_info,  # 交通方式 + 票价
         "daily_plan": daily_plan,
         "route": route,
         "night_risk": night_risk,
@@ -202,13 +276,7 @@ async def itinerary_node(state: TravelState) -> dict:
         "data_source": "amap",
     }
 
-    try:
-        llm = get_llm()
-        await llm.complete([{"role": "system", "content": build_system_prompt("itinerary", "日程编排")}])
-    except Exception as exc:
-        logger.warning("Itinerary LLM 失败，模板降级：%s", exc)
-        itinerary["quality"] = "degraded"
-
+    # 日程编排用高德数据 + 规则模板，无需 LLM（提速）
     async with session_scope() as db:
         from sqlalchemy import delete
 

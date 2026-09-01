@@ -50,6 +50,7 @@ class TravelPlan(Base):
     workspace_path: Mapped[str] = mapped_column(Text, nullable=False)  # workspace/{id}/
     idempotency_key: Mapped[str | None] = mapped_column(String(64))  # 与 user_id 组合唯一
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 真实完成时间
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
     )

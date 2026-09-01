@@ -60,7 +60,7 @@ async def _get(path: str, params: dict[str, Any]) -> dict:
     last_exc: Exception | None = None
     for attempt in range(2):
         try:
-            async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
+            async with httpx.AsyncClient(timeout=30, trust_env=False) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()
                 data = resp.json()
@@ -113,6 +113,28 @@ async def geocode(address: str) -> tuple[float, float] | None:
         return float(lng), float(lat)
     except (ValueError, AttributeError):
         return None
+
+
+async def resolve_city(address: str) -> str | None:
+    """把地址/城市名规范化为标准城市名（去省前缀/后缀），供 POI 搜索用。
+
+    例如「河北沧州」→「沧州」、「云南省昆明」→「昆明」、「北京市」→「北京」。
+    失败返回 None（调用方回退用原始地址）。
+    """
+    data = await _get("geocode/geo", {"address": address})
+    geos = data.get("geocodes") or []
+    if not geos:
+        return None
+    g = geos[0]
+    city = g.get("city") or g.get("district") or g.get("province")
+    if not city:
+        return None
+    # 去掉「市」后缀（高德 POI 搜索 city 参数不带市更准）
+    for suffix in ("市", "省", "自治区", "特别行政区"):
+        if city.endswith(suffix) and len(city) > 2:
+            city = city[: -len(suffix)]
+            break
+    return city
 
 
 async def search_poi(

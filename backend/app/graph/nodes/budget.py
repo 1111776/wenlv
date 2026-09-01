@@ -47,12 +47,7 @@ async def budget_node(state: TravelState) -> dict:
     total = sum(i["amount"] for i in items)
     over_ratio = (total - budget_limit) / budget_limit if budget_limit else 0.0
 
-    try:
-        llm = get_llm()
-        await llm.complete([{"role": "system", "content": build_system_prompt("budget", "预算计算")}])
-    except Exception as exc:
-        logger.warning("Budget LLM 失败，模板降级：%s", exc)
-
+    # 预算用规则公式计算，无需 LLM（提速）
     async with session_scope() as db:
         from sqlalchemy import delete
 

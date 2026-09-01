@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from sqlalchemy import select
@@ -18,7 +19,7 @@ from app.core.logging import get_logger
 from app.graph.state import TravelState
 from app.models import AgentTask
 from app.models.agent_task import TASK_STATUS
-from app.services.amap import AmapError, search_poi
+from app.services.amap import AmapError, resolve_city, search_poi
 from app.services.audit import add_audit
 from app.services.content_safety import ContentSafetyFilter
 from app.services.injection_detector import PromptInjectionDetector, wrap_untrusted_data
@@ -46,7 +47,10 @@ async def web_research_node(state: TravelState) -> dict:
     plan_id = state["plan_id"]
     injector = PromptInjectionDetector()
     safety = ContentSafetyFilter()
-    destination = (state.get("preferences") or {}).get("destination") or "目的地"
+    raw_destination = (state.get("preferences") or {}).get("destination") or "目的地"
+
+    # 规范化城市名（「河北沧州」→「沧州」），避免高德误搜到省一级
+    destination = await resolve_city(raw_destination) or raw_destination
 
     # 读全部 web_research 任务
     async with session_scope() as db:
@@ -80,7 +84,9 @@ async def web_research_node(state: TravelState) -> dict:
         keyword = task_data.get("keyword", "景点")
         amap_types = task_data.get("amap_types")
 
-        # 调用高德 POI 搜索（真实数据）
+        # 调用高德 POI 搜索（真实数据）；连续请求间加 200ms 延时，避免高德 QPS 限流
+        if steps > 1:
+            await asyncio.sleep(0.2)
         try:
             pois = await search_poi(keyword, destination, types=amap_types, offset=5)
         except AmapError as exc:

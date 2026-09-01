@@ -70,6 +70,7 @@ class PlanDetailOut(BaseModel):
     state_version: int
     progress: dict
     created_at: Any
+    completed_at: Any = None
 
 
 class PlanListItem(BaseModel):
@@ -80,6 +81,7 @@ class PlanListItem(BaseModel):
     resume_from: str | None
     progress: dict
     created_at: Any
+    completed_at: Any = None
 
 
 class PlanListOut(BaseModel):
