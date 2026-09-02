@@ -1,19 +1,19 @@
 @echo off
 chcp 65001 >nul
-title ɽ���� - һ���ر�
+title 山海行 - 一键关闭
 cd /d "%~dp0"
 
 echo.
 echo  ============================================
-echo    ɽ���� - ���ö�Agent�г̹滮ϵͳ
-echo    һ���ر�
+echo    山海行 - 文旅多Agent行程规划系统
+echo    一键关闭
 echo  ============================================
 echo.
 
 docker compose down
 
 echo.
-echo  ������ȫ��ֹͣ��
-echo  ���ݱ����� Docker ���У��´��������ᶪʧ��
+echo  服务已全部停止。
+echo  数据保留在 Docker 卷中，下次启动不会丢失。
 echo.
 pause
