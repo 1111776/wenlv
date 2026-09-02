@@ -193,10 +193,25 @@ def _build_report_markdown(
     tags = prefs.get("tags") or []
 
     # 出行总人数（成人+儿童+老人），用于票价/门票/餐饮按人数计
-    _adults = prefs.get("adults", party.get("adults", 1))
-    _children = prefs.get("children", party.get("children", 0))
-    _elders = prefs.get("elders", party.get("elders", 0))
-    people = max(int(_adults or 1) + int(_children or 0) + int(_elders or 0), 1)
+    _adults = int(prefs.get("adults") or party.get("adults") or 1)
+    _children = int(prefs.get("children") or party.get("children") or 0)
+    _elders = int(prefs.get("elders") or party.get("elders") or 0)
+    people = max(_adults + _children + _elders, 1)
+
+    def _tiered_price_str(tk: dict | None) -> str:
+        """票价分档：成人/儿童/老人各 × 人数，合计总价（交通/门票复用）。"""
+        if not tk:
+            return ""
+        parts = []
+        if _adults and (tk.get("adult_total") or tk.get("adult_price")):
+            parts.append(f"成人 ¥{tk.get('adult_price', 0)}×{_adults}={tk.get('adult_total', 0)}")
+        if _children and tk.get("child_total"):
+            parts.append(f"儿童 ¥{tk.get('child_price', 0)}×{_children}={tk.get('child_total', 0)}")
+        if _elders:
+            parts.append(f"老人 ¥{tk.get('elder_price', 0)}×{_elders}={tk.get('elder_total', 0)}")
+        if parts:
+            return "；".join(parts) + f"（合计¥{tk.get('total', 0)}）"
+        return f"¥{tk.get('total', 0)}"
 
     lines: list[str] = []
     lines.append(f"# {destination} 行程计划报告")
@@ -278,8 +293,8 @@ def _build_report_markdown(
         if t.get("method"):
             lines.append(f"| 交通方式 | {t['method']} |")
         if t.get("price"):
-            tp = t.get("total_price")
-            lines.append(f"| 票价 | ¥{t['price']}/人 × {people}人 = **¥{tp}** |" if tp else f"| 票价 | ¥{t['price']}/人 |")
+            tiered = _tiered_price_str(t.get("ticket"))
+            lines.append(f"| 票价 | {tiered} |" if tiered else f"| 票价 | ¥{t['price']}/人 |")
         if t.get("duration"):
             lines.append(f"| 耗时 | {t['duration']} |")
         if t.get("depart_time"):
@@ -295,8 +310,8 @@ def _build_report_markdown(
             if t.get("return_method"):
                 lines.append(f"| 交通方式 | {t['return_method']} |")
             if t.get("return_price"):
-                rp = t.get("return_total_price")
-                lines.append(f"| 票价 | ¥{t['return_price']}/人 × {people}人 = **¥{rp}** |" if rp else f"| 票价 | ¥{t['return_price']}/人 |")
+                tiered = _tiered_price_str(t.get("return_ticket"))
+                lines.append(f"| 票价 | {tiered} |" if tiered else f"| 票价 | ¥{t['return_price']}/人 |")
             if t.get("return_duration"):
                 lines.append(f"| 耗时 | {t['return_duration']} |")
             lines.append("")
@@ -323,16 +338,7 @@ def _build_report_markdown(
             """门票：分成人/儿童/老人票。"""
             t = spot.get("ticket")
             if t:
-                parts = []
-                if t.get("adult_total") or (t.get("adult_price") and _adults):
-                    parts.append(f"成人 ¥{t['adult_price']}×{_adults}={t['adult_total']}")
-                if t.get("child_total"):
-                    parts.append(f"儿童 ¥{t['child_price']}×{_children}={t['child_total']}")
-                if _elders:
-                    parts.append(f"老人 免费×{_elders}=0")
-                if parts:
-                    return "；".join(parts) + f"（合计¥{t['total']}）"
-                return f"¥{t['total']}"
+                return _tiered_price_str(t)
             p = spot.get("price")
             if not p:
                 return ""

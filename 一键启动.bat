@@ -1,11 +1,12 @@
 @echo off
 chcp 65001 >nul
-title 文旅行程规划系统 - 一键启动
+title 山海行 - 文旅多Agent行程规划系统 一键启动
 cd /d "%~dp0"
 
 echo.
 echo  ============================================
-echo    文旅行程规划系统 - 一键启动
+echo    山海行 - 文旅多Agent行程规划系统
+echo    一键启动
 echo  ============================================
 echo.
 
@@ -52,9 +53,10 @@ echo      前端看板  http://localhost:8080
 echo      后端API   http://localhost:8001/docs
 echo      Grafana   http://localhost:3002 (admin/admin)
 echo.
-echo    演示账号：
-echo      旅行顾问  advisor_demo / wenlv123
-echo      主管审核  supervisor_demo / wenlv123
+echo    演示账号（密码都是 wenlv123）：
+echo      旅行顾问  advisor_demo
+echo      主管审核  supervisor_demo
+echo      游客      （可自行注册，选择游客身份）
 echo  ============================================
 echo.
 echo  提示：本窗口可关闭，服务在后台继续运行

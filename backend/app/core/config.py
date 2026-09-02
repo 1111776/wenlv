@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     # HITL 阈值（可配）
     # ------------------------------------------------------------------ #
     budget_over_ratio: float = 0.20  # 超预算比例阈值（S7）
+    budget_review_threshold: float = 30000  # 预算金额超过此阈值即触发人工审核
     review_timeout_hours: int = 24  # 审批超时（S8）
     sentiment_min_score: float = 0.25  # 舆情综合分低于此值视为严重（§5.2）
     night_start_hour: int = 22  # 高危夜行开始时刻 22:00

@@ -144,7 +144,7 @@ export default function PlanNew() {
               </Col>
               <Col span={8}>
                 <Form.Item name="budget_limit" label="预算上限（元）">
-                  <InputNumber min={1} style={{ width: "100%" }} placeholder="15000" />
+                  <InputNumber min={1} max={35000} style={{ width: "100%" }} placeholder="15000" />
                 </Form.Item>
               </Col>
             </Row>

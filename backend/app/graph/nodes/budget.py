@@ -21,11 +21,11 @@ from app.models.agent_task import TASK_STATUS
 logger = get_logger(__name__)
 
 
-def _party_size(preferences: dict) -> int:
-    """计算出行总人数（成人+儿童+老人）。
+def _party_counts(preferences: dict) -> tuple[int, int, int]:
+    """取成人/儿童/老人人数。
 
-    优先从 preferences 顶层字段（Intake LLM 解析的 adults/children/elders），
-    否则从 party 结构化字段。最少 1 人。
+    优先从 preferences 顶层字段（Intake 归一化后写入的 adults/children/elders），
+    否则从 party 结构化字段。保证至少 1 个成人。
     """
     adults = preferences.get("adults")
     children = preferences.get("children", 0)
@@ -37,21 +37,46 @@ def _party_size(preferences: dict) -> int:
         children = party.get("children", 0)
         elders = party.get("elders", 0)
 
-    return max(int(adults or 1) + int(children or 0) + int(elders or 0), 1)
+    adults = int(adults or 0)
+    children = int(children or 0)
+    elders = int(elders or 0)
+    if adults + children + elders <= 0:
+        adults = 1
+    return adults, children, elders
 
 
-def _build_budget_items(destination: str, days: int, people: int) -> list[dict]:
-    """预算项按人数累加（交通/门票/餐饮都 × 人数；酒店按房数估算）。"""
+def _build_budget_items(
+    destination: str, days: int, adults: int, children: int, elders: int
+) -> list[dict]:
+    """预算项按成人/儿童/老人分档计费（车票/门票折扣与报告一致；餐饮按总人数）。"""
+    people = adults + children + elders
     hotel_nights = max(days - 1, 1)  # 住宿晚数 = 天数 - 1（N 天住 N-1 晚）
     hotel_cost = hotel_total(destination, hotel_nights)
     # 住宿：按人数折算房间数（2人一间，向上取整）
     rooms = max((people + 1) // 2, 1)
     hotel_cost = hotel_cost * rooms
 
+    # 往返交通：成人全价，儿童/老人按配置折扣
+    traffic_base = 1000
+    traffic = (
+        traffic_base * adults
+        + int(traffic_base * settings.transport_child_discount) * children
+        + int(traffic_base * settings.transport_elder_discount) * elders
+    )
+    # 门票：成人全价，儿童/老人按配置折扣（老人默认免费）
+    ticket_daily = 150 * days
+    ticket = (
+        ticket_daily * adults
+        + int(ticket_daily * settings.ticket_child_discount) * children
+        + int(ticket_daily * settings.ticket_elder_discount) * elders
+    )
+
+    party_label = f"{adults}大{children}小{elders}老" if elders else f"{adults}大{children}小"
+
     return [
-        {"category": "traffic", "item": f"往返交通（{people}人）", "amount": 1000 * people},
+        {"category": "traffic", "item": f"往返交通（{party_label}）", "amount": traffic},
         {"category": "hotel", "item": f"住宿 {hotel_nights} 晚（{rooms}间）", "amount": hotel_cost},
-        {"category": "ticket", "item": f"景点门票（{people}人）", "amount": 150 * days * people},
+        {"category": "ticket", "item": f"景点门票（{party_label}）", "amount": ticket},
         {"category": "food", "item": f"餐饮（{people}人）", "amount": 200 * days * people},
         {"category": "other", "item": "其他", "amount": 300 * people},
     ]
@@ -64,9 +89,9 @@ async def budget_node(state: TravelState) -> dict:
     days = preferences.get("days", 7)
     destination = preferences.get("destination") or "目的地"
     budget_limit = preferences.get("budget_limit") or 15000
-    people = _party_size(preferences)
+    adults, children, elders = _party_counts(preferences)
 
-    items = _build_budget_items(destination, days, people)
+    items = _build_budget_items(destination, days, adults, children, elders)
     total = sum(i["amount"] for i in items)
     over_ratio = (total - budget_limit) / budget_limit if budget_limit else 0.0
 
@@ -111,5 +136,6 @@ async def budget_node(state: TravelState) -> dict:
 
     return {
         "over_budget_ratio": over_ratio,
+        "total_budget": total,
         "completed_nodes": state.get("completed_nodes", []) + ["budget"],
     }

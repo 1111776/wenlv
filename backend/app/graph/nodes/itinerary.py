@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 
 from sqlalchemy import select
@@ -77,6 +78,80 @@ def _collect_pois(tasks: list[AgentTask]) -> tuple[list[dict], list[dict]]:
                 attractions.append(p)
 
     return attractions, restaurants
+
+
+# 夜生活/娱乐场所关键词（这类 POI 只排晚上，不占白天景点位）
+_NIGHTLIFE_KEYWORDS = [
+    "KTV", "ktv", "酒吧", "酒馆", "夜店", "电竞", "网吧", "网咖", "网盟",
+    "足浴", "洗浴", "桑拿", "电影院", "影院", "剧场", "演艺", "歌厅", "舞厅",
+    "密室", "桌游", "清吧", "夜总会", "迪厅", "俱乐部", "Livehouse", "livehouse",
+    "小酒馆", "烤吧", "餐吧",
+]
+
+# 购物/商场类（不是风景/景点，不排进每日观光行程，避免「自然风光」行程里塞满商场）
+_SHOPPING_KEYWORDS = [
+    "购物中心", "购物广场", "商场", "百货", "商贸", "商业街", "批发市场",
+    "奥莱", "奥特莱斯", "免税店", "超市", "卖场",
+]
+
+# 餐次关键词：把餐厅归类到早餐/正餐/晚餐（避免早餐排火锅、午餐排烧烤）
+_BREAKFAST_KEYWORDS = [
+    "早餐", "包子", "粥", "豆浆", "油条", "馒头", "面包", "烘焙", "汉堡",
+    "麦当劳", "肯德基", "德克士", "华莱士", "星巴克", "咖啡", "粉",
+]
+_DINNER_KEYWORDS = [
+    "火锅", "烧烤", "烤鱼", "海鲜", "日料", "西餐", "牛排", "夜宵",
+    "大排档", "串串", "麻辣烫", "龙虾", "烤全羊", "铁板",
+]
+
+
+def _is_nightlife(poi: dict) -> bool:
+    """判断 POI 是否夜生活/娱乐场所（KTV/酒吧/网吧/影院等），只适合晚上。"""
+    text = f"{poi.get('name', '')} {poi.get('type', '')}"
+    return any(k in text for k in _NIGHTLIFE_KEYWORDS)
+
+
+def _is_shopping(poi: dict) -> bool:
+    """判断 POI 是否购物/商场类（不进每日观光行程）。"""
+    text = f"{poi.get('name', '')} {poi.get('type', '')}"
+    return any(k in text for k in _SHOPPING_KEYWORDS)
+
+
+def _rating(poi: dict) -> float:
+    """POI 评分（高德 biz_ext.rating 是字符串），无评分返回 0。"""
+    try:
+        return float(poi.get("rating") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _classify_meal(poi: dict) -> str:
+    """把餐厅归类为 breakfast / lunch / dinner（默认正餐 lunch）。"""
+    text = f"{poi.get('name', '')} {poi.get('type', '')}"
+    for k in _BREAKFAST_KEYWORDS:
+        if k in text:
+            return "breakfast"
+    for k in _DINNER_KEYWORDS:
+        if k in text:
+            return "dinner"
+    return "lunch"
+
+
+def _pick_meal(restaurants: list[dict], slot: str, day_idx: int):
+    """按餐次挑餐厅：优先类型匹配，否则轮转兜底；按天轮转避免每天重复同一家。"""
+    if not restaurants:
+        return None
+    if slot == "dinner":
+        # 晚餐优先火锅/烧烤等，其次正餐，最后全量兜底
+        dinner_typed = [r for r in restaurants if _classify_meal(r) == "dinner"]
+        lunch_typed = [r for r in restaurants if _classify_meal(r) == "lunch"]
+        pool = (dinner_typed + lunch_typed) or restaurants
+    else:
+        typed = [r for r in restaurants if _classify_meal(r) == slot]
+        pool = typed or restaurants
+    # 用 day_idx 直接取模轮转（不用 day_idx*3+slot_idx，避免 pool 长度整除步长时恒命中同一家）
+    idx = day_idx % len(pool)
+    return pool[idx]
 
 
 async def _route_between(origin, destination) -> dict | None:
@@ -209,18 +284,48 @@ async def itinerary_node(state: TravelState) -> dict:
         len(attractions), len(restaurants), len(excluded_attractions),
     )
 
-    # 按天分配景点（每天 3 个：上午/下午/晚上）
+    # 分离：夜生活/娱乐场所（KTV/酒吧/网吧/影院等）只排晚上，不占白天景点位；
+    # 购物/商场类不进观光行程；同一景点（如某公园的北园/南园）去重保留评分最高。
+    day_attractions: list[dict] = []
+    nightlife: list[dict] = []
+    seen_day: dict[str, dict] = {}
+    for p in attractions:
+        if _is_shopping(p):
+            continue  # 商场不进每日行程
+        if _is_nightlife(p):
+            nightlife.append(p)
+        else:
+            # 同名去重：拆「-」/「(」截取主干名，同主干保留评分最高
+            base = re.split(r"[-—()（）]", p.get("name", ""))[0].strip()
+            key = base or p.get("name")
+            if key in seen_day:
+                if _rating(p) > _rating(seen_day[key]):
+                    seen_day[key] = p
+            else:
+                seen_day[key] = p
+    day_attractions = list(seen_day.values())
+    if not day_attractions:
+        # 极端情况：全是夜生活/购物（如某城博物馆类被娱乐场所顶替），白天兜底用全部景点
+        day_attractions = [p for p in attractions if not _is_nightlife(p)] or list(attractions)
+        nightlife = []
+    logger.info(
+        "白天景点 %d 个、夜生活 %d 个", len(day_attractions), len(nightlife),
+    )
+
+    # 按天分配景点（每天 3 段：上午/下午用白天景点，晚上优先夜生活）
     daily_plan: list[dict] = []
     cursor = 0
 
     # 先收集所有需要路径规划的点对，一次性并发计算（加速）
     route_pairs: list[tuple[int, int, tuple, tuple]] = []
     spots_per_day: list[tuple] = []
+    n_day = len(day_attractions)
+    n_night = len(nightlife)
     for day in range(1, days + 1):
-        am = attractions[cursor % len(attractions)] if attractions else None
-        pm = attractions[(cursor + 1) % len(attractions)] if attractions else None
-        ev = attractions[(cursor + 2) % len(attractions)] if attractions else None
-        cursor += 3
+        am = day_attractions[(cursor * 2) % n_day] if n_day else None
+        pm = day_attractions[(cursor * 2 + 1) % n_day] if n_day else None
+        ev = nightlife[cursor % n_night] if n_night else (day_attractions[(cursor * 2 + 2) % n_day] if n_day else None)
+        cursor += 1
         spots_per_day.append((am, pm, ev))
         if am and pm and am.get("location") and pm.get("location"):
             route_pairs.append((day - 1, "am_pm", am["location"], pm["location"]))
@@ -273,13 +378,10 @@ async def itinerary_node(state: TravelState) -> dict:
         am_pm_route = route_map.get((day_idx, "am_pm"))
         pm_ev_route = route_map.get((day_idx, "pm_ev"))
 
-        # 三餐：按天从餐厅列表轮转取（早餐/午餐/晚餐各一家）
-        def _meal_at(i: int):
-            return restaurants[i % len(restaurants)] if restaurants else None
-
-        breakfast = _meal_at(day_idx * 3)
-        lunch = _meal_at(day_idx * 3 + 1)
-        dinner = _meal_at(day_idx * 3 + 2)
+        # 三餐：按餐次类型匹配（早餐不吃火锅、晚餐优先火锅烧烤），同类型内轮转
+        breakfast = _pick_meal(restaurants, "breakfast", day_idx)
+        lunch = _pick_meal(restaurants, "lunch", day_idx)
+        dinner = _pick_meal(restaurants, "dinner", day_idx)
 
         daily_plan.append(
             {

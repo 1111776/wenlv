@@ -119,6 +119,9 @@ async def resolve_city(address: str) -> str | None:
     """把地址/城市名规范化为标准城市名（去省前缀/后缀），供 POI 搜索用。
 
     例如「河北沧州」→「沧州」、「云南省昆明」→「昆明」、「北京市」→「北京」。
+    省级行政区（如「新疆」「西藏」「内蒙古」）的 city/district 为空，此时
+    直接返回用户原始输入（去「省」字）——高德 place/text 支持省级名搜索，
+    不能截断 province（「新疆维吾尔自治区」→「新疆维吾尔」会搜错到默认城市）。
     失败返回 None（调用方回退用原始地址）。
     """
     data = await _get("geocode/geo", {"address": address})
@@ -126,9 +129,16 @@ async def resolve_city(address: str) -> str | None:
     if not geos:
         return None
     g = geos[0]
-    city = g.get("city") or g.get("district") or g.get("province")
+    city = g.get("city") or g.get("district")
     if not city:
-        return None
+        # 省级行政区：city/district 均为空，只有 province。
+        # 直接用用户原始输入（去掉「省」后缀），不要截断 province。
+        prov = address.strip()
+        for suffix in ("省",):
+            if prov.endswith(suffix) and len(prov) > 2:
+                prov = prov[: -len(suffix)]
+                break
+        return prov or None
     # 去掉「市」后缀（高德 POI 搜索 city 参数不带市更准）
     for suffix in ("市", "省", "自治区", "特别行政区"):
         if city.endswith(suffix) and len(city) > 2:

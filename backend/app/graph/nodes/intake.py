@@ -47,8 +47,92 @@ _KNOWN_PLACES = [
 ]
 
 
+def _parse_origin(query: str) -> str | None:
+    """解析出发地：从X到/去/前往 / 自X出发 / 开头「X到/去」。"""
+    m = re.search(r"(?:从|自)\s*([一-龥]{2,8}?)\s*(?:到|去|前往|出发|飞|坐|乘)", query)
+    if m:
+        return m.group(1)
+    m = re.search(r"([一-龥]{2,8}?)\s*出发", query)
+    if m:
+        return m.group(1)
+    # 开头直接「X到/去」：北京到新疆 → 北京
+    m = re.match(r"^([一-龥]{2,8}?)\s*(?:到|去|前往)", query)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _parse_destination(query: str) -> str | None:
+    """解析目的地。优先级：「到/去/前往X」 > 已知地名（取最后一个出现）> 英文地名。"""
+    # 1. 到/去/前往 X（用已知地名精确截断，避免吞入「旅游/玩」等后缀）
+    m = re.search(r"(?:到|去|前往)\s*([一-龥]{2,8})", query)
+    if m:
+        cand = m.group(1)
+        for place in sorted(_KNOWN_PLACES, key=len, reverse=True):
+            if cand == place or cand.startswith(place) or place in cand:
+                return place
+        # 列表外城市：去掉常见尾部动词/后缀
+        cand = re.sub(r"(玩|游|旅|行|天|晚|住|吃)+$", "", cand)
+        if cand:
+            return cand
+    # 2. 已知地名兜底：取最后一个出现的（「从A到B」中 B 是目的地，位置靠后）
+    best_idx, best = -1, None
+    for place in _KNOWN_PLACES:
+        idx = query.find(place)
+        if idx >= 0 and idx > best_idx:
+            best_idx, best = idx, place
+    if best:
+        return best
+    # 3. 英文地名
+    m = _DEST_EN.search(query)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+def _parse_party(query: str) -> dict | None:
+    """解析出行人数。支持 3成人2儿童1老人 / 3大2小1老 / 2大2儿童2老人 / 2大2小 / 4人 等。"""
+    adults = children = elders = None
+
+    m = re.search(r"(\d+)\s*(?:成\s*人|大\s*人|成\s*年\s*人)", query)
+    if m:
+        adults = int(m.group(1))
+    m = re.search(r"(\d+)\s*(?:儿\s*童|小\s*孩|孩\s*子)", query)
+    if m:
+        children = int(m.group(1))
+    m = re.search(r"(\d+)\s*老\s*人", query)
+    if m:
+        elders = int(m.group(1))
+
+    # 兜底：单字「大/小/老」（旅游语境 2大1小1老）
+    if adults is None:
+        m = re.search(r"(\d+)\s*大", query)
+        if m:
+            adults = int(m.group(1))
+    if children is None:
+        m = re.search(r"(\d+)\s*小", query)
+        if m:
+            children = int(m.group(1))
+    if elders is None:
+        m = re.search(r"(\d+)\s*老", query)
+        if m:
+            elders = int(m.group(1))
+
+    if adults is None and children is None and elders is None:
+        m = re.search(r"(\d+)\s*人", query)
+        if m:
+            return {"adults": int(m.group(1)), "children": 0, "elders": 0}
+        return None
+
+    return {
+        "adults": adults or 0,
+        "children": children or 0,
+        "elders": elders or 0,
+    }
+
+
 def _fallback_parse(query: str) -> dict:
-    """正则降级：从自然语言里抽目的地/天数/预算/出行人。"""
+    """正则降级：从自然语言里抽出发地/目的地/天数/预算/出行人。"""
     prefs: dict = {"tags": []}
     # 天数：N天 / N 天 / N晚
     m = re.search(r"(\d+)\s*(?:天|晚)", query)
@@ -61,27 +145,17 @@ def _fallback_parse(query: str) -> dict:
         if m.group(2) in ("万",):
             amt *= 10000
         prefs["budget_limit"] = amt
-    # 出行人：2大1小 / 3人 / 一家3口
-    m = re.search(r"(\d+)\s*大\s*(\d+)\s*小", query)
-    if m:
-        prefs["party"] = {"adults": int(m.group(1)), "children": int(m.group(2))}
-    else:
-        m = re.search(r"(\d+)\s*人", query)
-        if m:
-            prefs["party"] = {"adults": int(m.group(1)), "children": 0}
-    # 目的地：中文地名 / 英文地名 / 已知地名兜底
-    m = _DEST_CN.search(query)
-    if m:
-        prefs["destination"] = m.group(1)
-    else:
-        m = _DEST_EN.search(query)
-        if m:
-            prefs["destination"] = m.group(1).strip()
-        else:
-            for place in _KNOWN_PLACES:
-                if place in query:
-                    prefs["destination"] = place
-                    break
+    # 出行人
+    party = _parse_party(query)
+    if party:
+        prefs["party"] = party
+    # 出发地 / 目的地（区分「从A到B」）
+    origin = _parse_origin(query)
+    if origin:
+        prefs["origin"] = origin
+    dest = _parse_destination(query)
+    if dest:
+        prefs["destination"] = dest
     # 兴趣标签
     for kw in ["自然风光", "人文历史", "美食", "亲子", "购物", "海岛", "滑雪", "少购物"]:
         if kw in query:
@@ -131,15 +205,46 @@ async def intake_node(state: TravelState) -> dict:
         logger.warning("Intake LLM 失败，正则降级：%s", exc)
         degraded = True
 
-    # 合并：正则 < 请求结构化字段 < LLM。过滤空值，保留已填写的结构化字段。
+    # 合并优先级：LLM < 查询文本正则 < 表单结构化字段。
+    # 表单是用户显式输入，最权威；查询文本里的显式数字（N天/N成人等）其次；
+    # LLM 只兜底填空 —— LLM 可能幻觉（如返回 days=1 / 人数错乱），
+    # 数字类字段绝不能让它覆盖掉用户已明确给出的值。
     fallback = _fallback_parse(query)
     merged: dict = {
-        **fallback,
-        **{k: v for k, v in existing_prefs.items() if v not in (None, "", [])},
         **{k: v for k, v in llm_prefs.items() if v not in (None, "", [], {})},
+        **{k: v for k, v in fallback.items() if v not in (None, "", [])},
+        **{k: v for k, v in existing_prefs.items() if v not in (None, "", [])},
     }
     if degraded:
         merged["quality"] = "degraded"
+
+    # 归一化出行人：party（表单/正则）优先于顶层字段（LLM），
+    # 使预算/门票/报告统一按「成人+儿童+老人」正确计算人数。
+    # 用显式 None 判断，避免 party 里明确的 0（如不带儿童）被 LLM 顶层幻觉覆盖。
+    _party = merged.get("party") or {}
+    adults = _party.get("adults")
+    children = _party.get("children")
+    elders = _party.get("elders")
+    if adults is None:
+        adults = merged.get("adults")
+    if children is None:
+        children = merged.get("children")
+    if elders is None:
+        elders = merged.get("elders")
+    adults = int(adults or 0)
+    children = int(children or 0)
+    elders = int(elders or 0)
+    if adults + children + elders <= 0:
+        adults = 1
+    merged["adults"] = adults
+    merged["children"] = children
+    merged["elders"] = elders
+    merged["party"] = {
+        **_party,
+        "adults": adults,
+        "children": children,
+        "elders": elders,
+    }
 
     async with session_scope() as db:
         plan = await db.get(TravelPlan, uuid.UUID(plan_id))

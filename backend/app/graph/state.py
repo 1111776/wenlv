@@ -37,5 +37,6 @@ class TravelState(TypedDict, total=False):
     completed_nodes: list[str]
     status: str
     over_budget_ratio: float
+    total_budget: float  # 预算总金额（用于超阈值审核）
     night_risk: bool
     sentiment_risk: bool

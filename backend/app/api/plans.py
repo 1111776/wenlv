@@ -323,7 +323,7 @@ async def get_agents(plan_id: uuid.UUID, request: Request, db: AsyncSession = De
             return "running"
         if TASK_STATUS["PENDING"] in statuses and TASK_STATUS["COMPLETED"] in statuses:
             return "running"  # 部分完成，仍在进行
-        if all(s in (TASK_STATUS["COMPLETED"], TASK_STATUS["BLOCKED"]) for s in statuses):
+        if all(s in (TASK_STATUS["COMPLETED"], TASK_STATUS["BLOCKED"], TASK_STATUS["FAILED"]) for s in statuses):
             return "completed"
         if all(s == TASK_STATUS["PENDING"] for s in statuses):
             return "pending"

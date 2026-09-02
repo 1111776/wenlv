@@ -53,9 +53,14 @@ def route_after_budget(state: TravelState) -> str:
         return "report"
 
     over_ratio = state.get("over_budget_ratio", 0.0)
+    total_budget = state.get("total_budget", 0.0)
     night_risk = state.get("night_risk", False)
     sentiment_risk = state.get("sentiment_risk", False)
 
+    # 预算金额超过阈值（默认 30000）→ 人工审核
+    if total_budget > settings.budget_review_threshold:
+        return "hitl"
+    # 超预算比例（预算超用户预算 20%）→ 人工审核
     if over_ratio > settings.budget_over_ratio:
         return "hitl"
     if night_risk:
