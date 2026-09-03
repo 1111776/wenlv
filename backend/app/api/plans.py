@@ -114,7 +114,7 @@ async def create_plan(
     await db.flush()
 
     # 可选结构化字段写入 preferences（Intake 会覆盖/补全）
-    if body.destination or days or body.party or body.tags or body.start_date or body.origin:
+    if body.destination or days or body.party or body.tags or body.start_date or body.origin or body.ticket_purchase_mode or body.hotel_booking_mode:
         plan.preferences = {
             "origin": body.origin,
             "destination": body.destination,
@@ -124,6 +124,8 @@ async def create_plan(
             "budget_limit": body.budget_limit,
             "party": body.party.model_dump() if body.party else None,
             "tags": body.tags,
+            "ticket_purchase_mode": body.ticket_purchase_mode,
+            "hotel_booking_mode": body.hotel_booking_mode,
         }
 
     await add_audit(db, action="plan_create", actor_id=user_id, plan_id=plan.id, target=body.query[:128])

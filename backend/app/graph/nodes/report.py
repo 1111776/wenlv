@@ -355,6 +355,12 @@ def _build_report_markdown(
             lines.append(f"| 老人状态 | {p['elder_status']} |")
     if tags:
         lines.append(f"| 兴趣偏好 | {'、'.join(tags)} |")
+    ticket_mode = prefs.get("ticket_purchase_mode")
+    if ticket_mode:
+        lines.append(f"| 购票方式 | {'一次性买票' if ticket_mode == 'bundle' else '分开买票'} |")
+    hotel_mode = prefs.get("hotel_booking_mode")
+    if hotel_mode:
+        lines.append(f"| 酒店预订 | {'一次性订' if hotel_mode == 'bundle' else '分开订'} |")
     lines.append(f"| 预算上限 | ¥{float(plan.budget_limit or 0):,.0f} |")
     lines.append(f"| 预计总花费 | ¥{float(plan.total_budget or 0):,.0f} |")
     lines.append("")

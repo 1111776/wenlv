@@ -220,7 +220,16 @@ def _rating(poi: dict) -> float:
 
 
 def _classify_meal(poi: dict) -> str:
-    """把餐厅归类为 breakfast / lunch / dinner（默认正餐 lunch）。"""
+    """把餐厅归类为 breakfast / lunch / dinner（默认正餐 lunch）。
+
+    优先级：POI 的调研关键词标签（_keyword）> 店名关键词。
+    因为 planner 专门搜了「早餐」「快餐」关键词，用标签最可靠，
+    能覆盖店名里不带通用早餐词的地方特色早餐（如云南米线/饵丝/早点）。
+    """
+    kw = poi.get("_keyword") or ""
+    # 早餐/快餐关键词搜出来的，直接归早餐类（避免漏掉地方特色早餐店）
+    if kw == "早餐" or kw == "快餐":
+        return "breakfast"
     text = f"{poi.get('name', '')} {poi.get('type', '')}"
     for k in _BREAKFAST_KEYWORDS:
         if k in text:
@@ -239,6 +248,11 @@ def _pick_meal(restaurants: list[dict], slot: str, day_idx: int, used_names: set
         # 早餐只吃真正的早餐/快餐/轻食（包子/粥/豆浆/咖啡/面点等），
         # 没有早餐店就留空，绝不吃烤鸭/中餐/火锅等正餐
         breakfast_typed = [r for r in restaurants if _classify_meal(r) == "breakfast"]
+        # 再过滤掉店名带晚餐类关键词的（如"快餐"误搜出的"海鲜""小龙虾"）
+        breakfast_typed = [
+            r for r in breakfast_typed
+            if not any(k in f"{r.get('name','')} {r.get('type','')}" for k in _DINNER_KEYWORDS)
+        ]
         if not breakfast_typed:
             return None
         pool = breakfast_typed

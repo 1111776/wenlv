@@ -55,6 +55,8 @@ class PlanCreateRequest(BaseModel):
     budget_limit: float | None = Field(default=None, gt=0)
     party: Party | None = None
     tags: list[str] | None = None
+    ticket_purchase_mode: str | None = None  # 购票方式：bundle=一次性买票 / separate=分开买票
+    hotel_booking_mode: str | None = None  # 酒店预订：bundle=一次性订 / separate=分开订
 
 
 class PlanCreateOut(BaseModel):
