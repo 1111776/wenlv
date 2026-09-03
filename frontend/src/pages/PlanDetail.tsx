@@ -108,9 +108,26 @@ function SpotItem({ spot, tagColor, tagText, people = 1 }: { spot: any; tagColor
         {spot.ticket && spot.ticket.total > 0 && (
           <div style={{ color: "#fa541c", fontSize: 12, marginTop: 2 }}>
             💰 门票：成人 ¥{spot.ticket.adult_price}
-            {spot.ticket.child_total > 0 && ` / 儿童 ¥${spot.ticket.child_price}`}
-            {" / 老人免费"}
+            {spot.ticket.child_breakdown && spot.ticket.child_breakdown.length > 0
+              ? ` / 儿童 ${spot.ticket.child_breakdown
+                  .map((b: any) => `${b.age}岁${b.height ? "/" + b.height + "m" : ""} ¥${b.price}`)
+                  .join("、")}`
+              : spot.ticket.child_total > 0
+                ? ` / 儿童 ¥${spot.ticket.child_price}`
+                : null}
+            {spot.ticket.elder_breakdown && spot.ticket.elder_breakdown.length > 0
+              ? ` / 老人 ${spot.ticket.elder_breakdown
+                  .map((b: any) => `${b.age}岁${b.gender} ¥${b.price}`)
+                  .join("、")}`
+              : spot.ticket.elder_total > 0
+                ? ` / 老人 ¥${spot.ticket.elder_price}`
+                : " / 老人免费"}
             {" "}= <b>¥{spot.ticket.total}</b>
+            {spot.note && (
+              <div style={{ color: "#fa8c16", fontSize: 11, marginTop: 2 }}>
+                🎫 优待：{spot.note}
+              </div>
+            )}
           </div>
         )}
         {spot.route && (
@@ -272,16 +289,24 @@ export default function PlanDetail() {
                       <Typography.Text strong>🚌 去程</Typography.Text>
                       <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: "8px 20px" }}>
                         {agents.itinerary.transport.method && <span>方式 <b>{agents.itinerary.transport.method}</b></span>}
-                        {agents.itinerary.transport.price && (
+                        {agents.itinerary.transport.ticket && (
                           <span>💰 票价 <b style={{ color: "#fa541c" }}>
-                            {agents.itinerary.transport.total_price != null
-                              ? `¥${agents.itinerary.transport.price}/人 × ${peopleCount}人 = ¥${agents.itinerary.transport.total_price}`
-                              : `¥${agents.itinerary.transport.price}`}
+                            ¥{agents.itinerary.transport.ticket.total}
                           </b></span>
                         )}
                         {agents.itinerary.transport.duration && <span>⏱️ 耗时 <b>{agents.itinerary.transport.duration}</b></span>}
                         {agents.itinerary.transport.depart_time && <span>🕐 建议出发 <b>{agents.itinerary.transport.depart_time}</b></span>}
                       </div>
+                      {agents.itinerary.transport.ticket?.child_breakdown?.length > 0 && (
+                        <div style={{ marginTop: 4, fontSize: 12, color: "#595959" }}>
+                          👶 儿童购票：{agents.itinerary.transport.ticket.child_breakdown.map((b: any) => `${b.age}岁 ${b.tag} ¥${b.price}`).join("、")}
+                        </div>
+                      )}
+                      {agents.itinerary.transport.ticket?.note && (
+                        <div style={{ marginTop: 4, fontSize: 12, color: "#fa8c16" }}>
+                          🎫 {agents.itinerary.transport.ticket.note}
+                        </div>
+                      )}
                       {agents.itinerary.transport.on_the_way && (
                         <div style={{ marginTop: 4, fontSize: 12, color: "#8c8c8c" }}>
                           🎒 路上：{agents.itinerary.transport.on_the_way}
@@ -295,15 +320,23 @@ export default function PlanDetail() {
                         <Typography.Text strong>🏠 返程</Typography.Text>
                         <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: "8px 20px" }}>
                           <span>方式 <b>{agents.itinerary.transport.return_method}</b></span>
-                          {agents.itinerary.transport.return_price && (
+                          {agents.itinerary.transport.return_ticket && (
                             <span>💰 票价 <b style={{ color: "#fa541c" }}>
-                              {agents.itinerary.transport.return_total_price != null
-                                ? `¥${agents.itinerary.transport.return_price}/人 × ${peopleCount}人 = ¥${agents.itinerary.transport.return_total_price}`
-                                : `¥${agents.itinerary.transport.return_price}`}
+                              ¥{agents.itinerary.transport.return_ticket.total}
                             </b></span>
                           )}
                           {agents.itinerary.transport.return_duration && <span>⏱️ 耗时 <b>{agents.itinerary.transport.return_duration}</b></span>}
                         </div>
+                        {agents.itinerary.transport.return_ticket?.child_breakdown?.length > 0 && (
+                          <div style={{ marginTop: 4, fontSize: 12, color: "#595959" }}>
+                            👶 儿童购票：{agents.itinerary.transport.return_ticket.child_breakdown.map((b: any) => `${b.age}岁 ${b.tag} ¥${b.price}`).join("、")}
+                          </div>
+                        )}
+                        {agents.itinerary.transport.return_ticket?.note && (
+                          <div style={{ marginTop: 4, fontSize: 12, color: "#fa8c16" }}>
+                            🎫 {agents.itinerary.transport.return_ticket.note}
+                          </div>
+                        )}
                       </div>
                     )}
 

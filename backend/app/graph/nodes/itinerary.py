@@ -55,7 +55,8 @@ def _collect_pois(tasks: list[AgentTask]) -> tuple[list[dict], list[dict]]:
         if t.agent_type != "web_research" or not t.result:
             continue
         keyword = t.result.get("keyword", "")
-        is_food = keyword == "餐厅" or "餐厅" in keyword or "美食" in keyword
+        # 餐饮类关键词：餐厅/美食/早餐/快餐/小吃/咖啡 等都算餐厅，供三餐编排
+        is_food = any(k in keyword for k in ["餐厅", "美食", "早餐", "快餐", "小吃", "咖啡", "面", "火锅", "烧烤"])
         is_hotel = "酒店" in keyword or "住宿" in keyword
         is_transport = "地铁" in keyword or "交通" in keyword or "站" in keyword
 
@@ -88,6 +89,55 @@ _NIGHTLIFE_KEYWORDS = [
     "小酒馆", "烤吧", "餐吧",
 ]
 
+# 家庭/老人出行不适宜的夜生活场所（有儿童或老人时直接剔除，只保留影院/剧场等全家友好型）
+_FAMILY_UNFRIENDLY_NIGHTLIFE = [
+    "网吧", "网咖", "网盟", "酒吧", "酒馆", "夜店", "夜总会", "KTV", "ktv",
+    "足浴", "洗浴", "桑拿", "歌厅", "舞厅", "密室", "桌游", "清吧", "迪厅",
+    "俱乐部", "Livehouse", "livehouse", "小酒馆", "烤吧", "餐吧", "电竞",
+]
+
+# 老人出行不适合的高强度/风险景点（高海拔/剧烈运动/长时间步行）
+_ELDER_UNSUITABLE = [
+    "滑雪", "漂流", "蹦极", "攀岩", "跳伞", "潜水", "冲浪", "登山", "徒步",
+    "越野", "滑翔", "过山车", "极限", "索道", "雪山", "冰川", "高原", "爬山",
+    "攀爬", "峡谷",
+]
+
+# 儿童出行不适合的景点/场所（部分与夜生活重叠，白天景点也可能出现）
+_CHILD_UNSUITABLE = [
+    "酒吧", "夜店", "KTV", "足浴", "桑拿", "密室", "桌游", "夜总会", "赌场",
+]
+
+# 儿童友好的景点（有儿童时排序靠前）
+_CHILD_FRIENDLY_KEYWORDS = [
+    "乐园", "动物园", "水族馆", "科技馆", "游乐园", "公园", "海洋", "亲子",
+    "儿童", "城堡", "博物馆", "主题",
+]
+
+# 老人友好的景点（平缓、节奏慢，有老人时排序靠前）
+_ELDER_FRIENDLY_KEYWORDS = [
+    "公园", "园林", "博物馆", "古镇", "古城", "广场", "湖", "老街", "故居",
+    "寺庙", "纪念馆", "美术馆",
+]
+
+# 兴趣标签 → POI 文本同义词（用于按兴趣优先排序景点）
+_TAG_SYNONYMS = {
+    "自然风光": ["公园", "风景", "山", "湖", "岛", "森林", "瀑布", "湿地", "海滩", "海湾", "草原", "峡谷", "河"],
+    "人文历史": ["博物馆", "古城", "寺庙", "故居", "古迹", "老街", "遗址", "纪念馆", "古镇", "园林"],
+    "美食": ["美食", "小吃", "餐厅", "夜市", "街", "巷", "市场"],
+    "亲子": ["乐园", "动物园", "水族馆", "科技馆", "游乐园", "公园", "亲子", "儿童"],
+    "购物": ["购物", "商场", "步行街", "百货", "奥莱", "免税"],
+    "海岛": ["岛", "海滩", "海", "沙滩", "潜水", "游船", "海洋"],
+    "滑雪": ["滑雪", "雪场", "雪"],
+    "温泉": ["温泉", "汤"],
+    "摄影": ["风景", "湖", "山", "塔", "观景", "日出", "日落"],
+    "徒步": ["山", "峡谷", "栈道", "步道", "森林", "徒步"],
+    "夜生活": ["酒吧", "夜市", "夜景", "剧场", "影院"],
+    "宗教": ["寺", "庙", "教堂", "宫", "佛", "观"],
+    "历史": ["博物馆", "古城", "遗址", "故居", "古迹", "古镇"],
+    "文化": ["博物馆", "古城", "艺术", "故居", "纪念馆", "美术馆"],
+}
+
 # 购物/商场类（不是风景/景点，不排进每日观光行程，避免「自然风光」行程里塞满商场）
 _SHOPPING_KEYWORDS = [
     "购物中心", "购物广场", "商场", "百货", "商贸", "商业街", "批发市场",
@@ -98,6 +148,8 @@ _SHOPPING_KEYWORDS = [
 _BREAKFAST_KEYWORDS = [
     "早餐", "包子", "粥", "豆浆", "油条", "馒头", "面包", "烘焙", "汉堡",
     "麦当劳", "肯德基", "德克士", "华莱士", "星巴克", "咖啡", "粉",
+    "煎饼", "馄饨", "饺子", "汤包", "蒸饺", "豆腐脑", "烧饼", "肠粉", "米粉",
+    "早茶", "点心", "甜品", "奶茶", "快餐", "面", "小吃",
 ]
 _DINNER_KEYWORDS = [
     "火锅", "烧烤", "烤鱼", "海鲜", "日料", "西餐", "牛排", "夜宵",
@@ -109,6 +161,48 @@ def _is_nightlife(poi: dict) -> bool:
     """判断 POI 是否夜生活/娱乐场所（KTV/酒吧/网吧/影院等），只适合晚上。"""
     text = f"{poi.get('name', '')} {poi.get('type', '')}"
     return any(k in text for k in _NIGHTLIFE_KEYWORDS)
+
+
+def _is_family_unfriendly_nightlife(poi: dict) -> bool:
+    """判断夜生活场所是否不适合儿童/老人（网吧/酒吧/KTV/足浴等）。"""
+    text = f"{poi.get('name', '')} {poi.get('type', '')}"
+    return any(k in text for k in _FAMILY_UNFRIENDLY_NIGHTLIFE)
+
+
+def _is_unsuitable_for_party(poi: dict, has_elder: bool, has_child: bool) -> bool:
+    """判断景点是否不适合当前出行人群（老人/儿童）。"""
+    text = f"{poi.get('name', '')} {poi.get('type', '')}"
+    if has_elder and any(k in text for k in _ELDER_UNSUITABLE):
+        return True
+    if has_child and any(k in text for k in _CHILD_UNSUITABLE):
+        return True
+    return False
+
+
+def _tag_score(poi: dict, tags: list[str]) -> float:
+    """按兴趣标签给 POI 打分，用于兴趣优先排序（匹配越多分越高）。"""
+    text = f"{poi.get('name', '')} {poi.get('type', '')}"
+    score = 0.0
+    for tag in tags or []:
+        if not tag:
+            continue
+        if tag in text:
+            score += 2.0
+        for syn in _TAG_SYNONYMS.get(tag, []):
+            if syn in text:
+                score += 1.5
+    return score
+
+
+def _party_friendly_score(poi: dict, has_elder: bool, has_child: bool) -> float:
+    """按出行人群给景点适配加分（亲子/老人友好优先）。"""
+    text = f"{poi.get('name', '')} {poi.get('type', '')}"
+    score = 0.0
+    if has_child and any(k in text for k in _CHILD_FRIENDLY_KEYWORDS):
+        score += 3.0
+    if has_elder and any(k in text for k in _ELDER_FRIENDLY_KEYWORDS):
+        score += 3.0
+    return score
 
 
 def _is_shopping(poi: dict) -> bool:
@@ -137,19 +231,34 @@ def _classify_meal(poi: dict) -> str:
     return "lunch"
 
 
-def _pick_meal(restaurants: list[dict], slot: str, day_idx: int):
-    """按餐次挑餐厅：优先类型匹配，否则轮转兜底；按天轮转避免每天重复同一家。"""
+def _pick_meal(restaurants: list[dict], slot: str, day_idx: int, used_names: set[str] | None = None):
+    """按餐次挑餐厅：优先类型匹配，否则轮转兜底；排除已用餐厅避免每天/每餐重复。"""
     if not restaurants:
         return None
-    if slot == "dinner":
+    if slot == "breakfast":
+        # 早餐只吃真正的早餐/快餐/轻食（包子/粥/豆浆/咖啡/面点等），
+        # 没有早餐店就留空，绝不吃烤鸭/中餐/火锅等正餐
+        breakfast_typed = [r for r in restaurants if _classify_meal(r) == "breakfast"]
+        if not breakfast_typed:
+            return None
+        pool = breakfast_typed
+    elif slot == "dinner":
         # 晚餐优先火锅/烧烤等，其次正餐，最后全量兜底
         dinner_typed = [r for r in restaurants if _classify_meal(r) == "dinner"]
         lunch_typed = [r for r in restaurants if _classify_meal(r) == "lunch"]
         pool = (dinner_typed + lunch_typed) or restaurants
-    else:
-        typed = [r for r in restaurants if _classify_meal(r) == slot]
+    else:  # lunch
+        typed = [r for r in restaurants if _classify_meal(r) == "lunch"]
         pool = typed or restaurants
-    # 用 day_idx 直接取模轮转（不用 day_idx*3+slot_idx，避免 pool 长度整除步长时恒命中同一家）
+
+    # 排除本行程已用过的餐厅（跨餐次共享），让早餐/午餐/晚餐尽量不重样；
+    # 只有当全部都用过时才回退到完整 pool 重新轮转。
+    used_names = used_names or set()
+    available = [r for r in pool if r.get("name") not in used_names]
+    if available:
+        pool = available
+
+    # 用 day_idx 取模轮转（不用 day_idx*3+slot_idx，避免 pool 长度整除步长时恒命中同一家）
     idx = day_idx % len(pool)
     return pool[idx]
 
@@ -162,10 +271,14 @@ async def _route_between(origin, destination) -> dict | None:
         return None
 
 
-async def _estimate_transport(origin: str, destination: str, people: int = 1, adults: int = 1, children: int = 0, elders: int = 0) -> dict | None:
+async def _estimate_transport(
+    origin: str, destination: str, people: int = 1, adults: int = 1,
+    elders: int = 0, children_detail: list[dict] | None = None, students: int = 0,
+) -> dict | None:
     """用 LLM 规划出发地到目的地的完整交通方案（去程/返程/途中建议/票价）。
 
-    price 为【成人】票价，按配置折扣算儿童/老人价，返回分档总价。
+    price 为【成人】票价，按高铁/飞机购票规则分档儿童/老人票价，
+    返回分档明细与购票备注（婴儿/儿童证件提示、学生票不适用等）。
     高德不提供票价，用 LLM 给合理方案。失败返回 None（不阻塞主流程）。
     """
     try:
@@ -203,11 +316,7 @@ async def _estimate_transport(origin: str, destination: str, people: int = 1, ad
         )
         info = result.structured
         if isinstance(info, dict) and info.get("method"):
-            from app.core.config import settings
-
-            adults = max(int(adults or 0), 0)
-            children = max(int(children or 0), 0)
-            elders = max(int(elders or 0), 0)
+            from app.agents.ticket_pricing import transport_ticket_prices
 
             def _num(s):
                 try:
@@ -215,24 +324,15 @@ async def _estimate_transport(origin: str, destination: str, people: int = 1, ad
                 except (ValueError, TypeError):
                     return 0.0
 
-            def _tiered(base_price):
-                """按成人/儿童/老人折扣算分档总价。"""
-                adult_p = _num(base_price)
-                child_p = int(round(adult_p * settings.transport_child_discount))
-                elder_p = int(round(adult_p * settings.transport_elder_discount))
-                return {
-                    "adult_price": int(round(adult_p)),
-                    "child_price": child_p,
-                    "elder_price": elder_p,
-                    "adult_total": int(round(adult_p)) * adults,
-                    "child_total": child_p * children,
-                    "elder_total": elder_p * elders,
-                    "total": int(round(adult_p)) * adults + child_p * children + elder_p * elders,
-                }
-
             info["people"] = people
-            info["ticket"] = _tiered(info.get("price", 0))  # 去程分档
-            info["return_ticket"] = _tiered(info.get("return_price", 0))  # 返程分档
+            info["ticket"] = transport_ticket_prices(
+                info.get("method", ""), _num(info.get("price", 0)),
+                adults, children_detail, elders, students,
+            )  # 去程分档
+            info["return_ticket"] = transport_ticket_prices(
+                info.get("return_method", ""), _num(info.get("return_price", 0)),
+                adults, children_detail, elders, students,
+            )  # 返程分档
             # 兼容旧字段：total_price = 去程总价
             info["total_price"] = info["ticket"]["total"]
             info["return_total_price"] = info["return_ticket"]["total"]
@@ -250,6 +350,18 @@ async def itinerary_node(state: TravelState) -> dict:
     days = int(preferences.get("days") or 7)
     destination = preferences.get("destination") or "目的地"
     origin = preferences.get("origin") or None  # 出发地（可选）
+
+    # 出行人结构（成人/儿童/老人）+ 兴趣标签，用于人群过滤与兴趣排序
+    _party_prefs = preferences.get("party") or {}
+    _adults = int(preferences.get("adults") or _party_prefs.get("adults") or 1)
+    _children = int(preferences.get("children") or _party_prefs.get("children") or 0)
+    _elders = int(preferences.get("elders") or _party_prefs.get("elders") or 0)
+    # 老人明细（年龄+性别，可多个），用于门票按年龄分档
+    _elders_detail = preferences.get("elders_detail") or _party_prefs.get("elders_detail") or []
+    # 儿童明细（年龄+身高，可多个），用于门票按年龄/身高分档
+    _children_detail = preferences.get("children_detail") or _party_prefs.get("children_detail") or []
+    tags = preferences.get("tags") or []
+    family_mode = _children > 0 or _elders > 0
 
     # 节点入口读取干预补丁（D9：Agent 下一次决策优先采用干预后状态）
     excluded_attractions: list[str] = []
@@ -284,6 +396,15 @@ async def itinerary_node(state: TravelState) -> dict:
         len(attractions), len(restaurants), len(excluded_attractions),
     )
 
+    # 知识库检索（RAG B）：按目的地+景区政策/美食召回语料，作为景点备注/餐饮参考
+    kb_hits: list[dict] = []
+    try:
+        from app.memory.kb_retrieve import search_kb
+
+        kb_hits = await search_kb(f"{destination} 景区政策 美食", top_k=5)
+    except Exception as exc:
+        logger.warning("知识库检索失败（忽略）：%s", exc)
+
     # 分离：夜生活/娱乐场所（KTV/酒吧/网吧/影院等）只排晚上，不占白天景点位；
     # 购物/商场类不进观光行程；同一景点（如某公园的北园/南园）去重保留评分最高。
     day_attractions: list[dict] = []
@@ -293,6 +414,9 @@ async def itinerary_node(state: TravelState) -> dict:
         if _is_shopping(p):
             continue  # 商场不进每日行程
         if _is_nightlife(p):
+            # 家庭/老人出行：剔除网吧/酒吧/KTV 等不适宜场所，只留影院/剧场等
+            if family_mode and _is_family_unfriendly_nightlife(p):
+                continue
             nightlife.append(p)
         else:
             # 同名去重：拆「-」/「(」截取主干名，同主干保留评分最高
@@ -308,6 +432,20 @@ async def itinerary_node(state: TravelState) -> dict:
         # 极端情况：全是夜生活/购物（如某城博物馆类被娱乐场所顶替），白天兜底用全部景点
         day_attractions = [p for p in attractions if not _is_nightlife(p)] or list(attractions)
         nightlife = []
+
+    # 人群适配：剔除老人/儿童不适合的高强度/风险景点（滑雪/漂流/蹦极等）
+    if family_mode:
+        filtered = [p for p in day_attractions if not _is_unsuitable_for_party(p, _elders > 0, _children > 0)]
+        if filtered:  # 过滤后仍有景点才采用，避免过度过滤导致空行程
+            day_attractions = filtered
+
+    # 兴趣推荐 + 人群适配：兴趣匹配、亲子/老人友好景点排前面
+    day_attractions = sorted(
+        day_attractions,
+        key=lambda p: _tag_score(p, tags) + _party_friendly_score(p, _elders > 0, _children > 0),
+        reverse=True,
+    )
+
     logger.info(
         "白天景点 %d 个、夜生活 %d 个", len(day_attractions), len(nightlife),
     )
@@ -344,13 +482,10 @@ async def itinerary_node(state: TravelState) -> dict:
     # 组装 daily_plan（景点 + 三餐餐饮）
     from app.agents.ticket_pricing import meal_price, ticket_prices_by_party
 
-    # 出行人结构（用于门票分成人/儿童/老人价）
-    _adults = preferences.get("adults", preferences.get("party", {}).get("adults", 1))
-    _children = preferences.get("children", preferences.get("party", {}).get("children", 0))
-    _elders = preferences.get("elders", preferences.get("party", {}).get("elders", 0))
-
     def _fmt_spot(poi, route_to_next):
-        tp = ticket_prices_by_party(poi["name"], poi.get("type", ""), _adults, _children, _elders)
+        tp = ticket_prices_by_party(
+            poi["name"], poi.get("type", ""), _adults, _children, _elders, _elders_detail, _children_detail
+        )
         return {
             "spot": poi["name"],
             "address": poi.get("address", ""),
@@ -361,6 +496,7 @@ async def itinerary_node(state: TravelState) -> dict:
             "photo": poi.get("photo", ""),
             "ticket": tp,  # 门票分档结构（成人/儿童/老人）
             "price": tp["total"],  # 门票总价（兼容旧的 price 字段）
+            "note": tp.get("note"),  # 老人/儿童优待备注
         }
 
     def _fmt_meal(poi):
@@ -374,14 +510,20 @@ async def itinerary_node(state: TravelState) -> dict:
             "price": meal_price(poi["name"], poi.get("type", "")),  # 人均价
         }
 
+    # 跨天已用餐厅集合：保证每天/每餐尽量不重复（全用过才回退）
+    used_meals: set[str] = set()
+
     for day_idx, (am, pm, ev) in enumerate(spots_per_day):
         am_pm_route = route_map.get((day_idx, "am_pm"))
         pm_ev_route = route_map.get((day_idx, "pm_ev"))
 
         # 三餐：按餐次类型匹配（早餐不吃火锅、晚餐优先火锅烧烤），同类型内轮转
-        breakfast = _pick_meal(restaurants, "breakfast", day_idx)
-        lunch = _pick_meal(restaurants, "lunch", day_idx)
-        dinner = _pick_meal(restaurants, "dinner", day_idx)
+        breakfast = _pick_meal(restaurants, "breakfast", day_idx, used_meals)
+        lunch = _pick_meal(restaurants, "lunch", day_idx, used_meals)
+        dinner = _pick_meal(restaurants, "dinner", day_idx, used_meals)
+        for m in (breakfast, lunch, dinner):
+            if m and m.get("name"):
+                used_meals.add(m["name"])
 
         daily_plan.append(
             {
@@ -419,9 +561,10 @@ async def itinerary_node(state: TravelState) -> dict:
         try:
             people = _party_size(preferences)
             _a = preferences.get("adults", preferences.get("party", {}).get("adults", 1))
-            _c = preferences.get("children", preferences.get("party", {}).get("children", 0))
             _e = preferences.get("elders", preferences.get("party", {}).get("elders", 0))
-            transport_info = await _estimate_transport(origin, destination, people, _a, _c, _e)
+            _cd = preferences.get("children_detail") or preferences.get("party", {}).get("children_detail") or []
+            _stu = preferences.get("students") or preferences.get("party", {}).get("students") or 0
+            transport_info = await _estimate_transport(origin, destination, people, _a, _e, _cd, _stu)
         except Exception:
             transport_info = None
 
@@ -439,6 +582,7 @@ async def itinerary_node(state: TravelState) -> dict:
         "night_risk": night_risk,
         "poi_count": len(attractions),
         "restaurant_count": len(restaurants),
+        "kb_hits": kb_hits,  # 知识库检索结果（供报告引用）
         "data_source": "amap",
     }
 

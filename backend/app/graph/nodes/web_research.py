@@ -84,6 +84,15 @@ async def web_research_node(state: TravelState) -> dict:
         keyword = task_data.get("keyword", "景点")
         amap_types = task_data.get("amap_types")
 
+        # 知识库检索（RAG B）：按目的地+关键词召回文旅语料，附到任务结果供后续节点使用
+        kb_hits: list[dict] = []
+        try:
+            from app.memory.kb_retrieve import search_kb
+
+            kb_hits = await search_kb(f"{destination} {keyword}", top_k=3)
+        except Exception as exc:
+            logger.warning("知识库检索失败（忽略）：%s", exc)
+
         # 调用高德 POI 搜索（真实数据）；连续请求间加 200ms 延时，避免高德 QPS 限流
         if steps > 1:
             await asyncio.sleep(0.2)
@@ -119,7 +128,7 @@ async def web_research_node(state: TravelState) -> dict:
         _ = wrap_untrusted_data(body)
         await _mark_task(
             plan_id, task.id, TASK_STATUS["COMPLETED"],
-            result={"keyword": keyword, "pois": pois, "count": len(pois), "quality": "ok"},
+            result={"keyword": keyword, "pois": pois, "count": len(pois), "quality": "ok", "kb_hits": kb_hits},
         )
         collected_pois.extend(
             {"name": p["name"], "location": p["location"], "type": p["type"], "category": keyword}

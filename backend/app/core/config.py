@@ -63,9 +63,15 @@ class Settings(BaseSettings):
     # 票价折扣（门票/车票的儿童/老人政策，可配，不写死）
     # ------------------------------------------------------------------ #
     ticket_child_discount: float = 0.5  # 门票儿童折扣（0.5 = 半价）
-    ticket_elder_discount: float = 0.0  # 门票老人折扣（0.0 = 免费；可改为 0.5 半价）
+    ticket_elder_discount: float = 0.0  # 门票老人折扣（0.0 = 免费；可改为 0.5 半价）—— 兜底默认，见下方按年龄分档
     transport_child_discount: float = 0.5  # 车票儿童折扣（高铁儿童半价）
     transport_elder_discount: float = 1.0  # 车票老人折扣（1.0 = 不免费，全价）
+
+    # 老人门票按年龄分档（国有/政府定价 A 级景区，只免首道大门票）：
+    #   60-64 半价（多数省份）；65 及以上免首道大门票；60 以下按成人全价。
+    #   免票不含观光车/索道/游船/演出/园中园，需另计（这里只算首道大门票）。
+    ticket_elder_free_age: int = 65  # 该年龄（含）以上免首道大门票
+    ticket_elder_half_age: int = 60  # 该年龄（含）至 free_age 之间半价
 
     # ------------------------------------------------------------------ #
     # LLM
@@ -75,6 +81,13 @@ class Settings(BaseSettings):
     llm_base_url: str = ""  # OpenAI 兼容端点，如 https://xxx.compatible-mode/v1
     llm_model: str = ""  # 模型名，如 qwen3.7-plus
     llm_max_concurrency: int = 1  # 单 Worker 内 LLM 并发信号量（§3.1 背压）
+
+    # ------------------------------------------------------------------ #
+    # Embedding（RAG：语义向量，复用百炼 OpenAI 兼容 /embeddings）
+    # ------------------------------------------------------------------ #
+    embedding_model: str = "text-embedding-v3"  # 百炼 embedding 模型
+    embedding_dim: int = 768  # 向量维度（text-embedding-v3 支持 1024/768/512）
+    vector_backend: str = "pgvector"  # pgvector | cosine（cosine=应用层兜底）
 
     # ------------------------------------------------------------------ #
     # 高德地图（真实数据）

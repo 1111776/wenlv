@@ -8,6 +8,27 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class ElderDetail(BaseModel):
+    """单个老人信息：年龄 + 性别（用于按年龄分档计算门票）。"""
+
+    age: int = Field(default=60, ge=0, le=120)
+    gender: str = "男"  # 男 / 女
+
+
+class ChildDetail(BaseModel):
+    """单个儿童信息：年龄 + 身高 + 购票状态（用于门票分档和交通购票）。"""
+
+    age: int = Field(default=6, ge=0, le=17)
+    height: float | None = Field(default=None, ge=0, le=2.5)  # 身高（米），可选
+    seat: bool = Field(default=False)  # 交通购票：是否单独占座（高铁 6 岁以下不占座可免票）
+
+
+class StudentDetail(BaseModel):
+    """单个学生信息：学历（用于判断学生票资格，旅游出行不适用学生票）。"""
+
+    level: str = Field(default="大学本科")  # 小学/初中/高中/中专/大专/本科/研究生等
+
+
 class Party(BaseModel):
     """出行人组成。"""
 
@@ -15,6 +36,11 @@ class Party(BaseModel):
     children: int = Field(default=0, ge=0)
     elders: int = Field(default=0, ge=0)  # 老人数量
     elder_status: str | None = None  # 老人生活状态：健康/行动不便/需轮椅/慢病等
+    adult_relation: str | None = None  # 成人关系：情侣/单身/未婚/已婚/家庭/朋友等
+    students: int = Field(default=0, ge=0)  # 学生数量（高铁学生票仅限家校往返，旅游不适用）
+    elders_detail: list[ElderDetail] = Field(default_factory=list)  # 老人明细（年龄+性别，可多个）
+    children_detail: list[ChildDetail] = Field(default_factory=list)  # 儿童明细（年龄+身高+占座，可多个）
+    students_detail: list[StudentDetail] = Field(default_factory=list)  # 学生明细（学历，可多个）
 
 
 class PlanCreateRequest(BaseModel):

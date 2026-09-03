@@ -12,10 +12,11 @@ import {
   Select,
   Space,
   Steps,
+  Switch,
   Typography,
   Alert,
 } from "antd";
-import { RocketOutlined, ArrowLeftOutlined } from "@ant-design/icons";
+import { RocketOutlined, ArrowLeftOutlined, PlusOutlined, MinusCircleOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import { api, unwrap } from "../api/client";
@@ -44,8 +45,20 @@ export default function PlanNew() {
   const onSubmit = async (values: any) => {
     setLoading(true);
     try {
+      // query 不再由用户手填，自动按表单字段拼一个（后端 Intake 解析 + 记忆抽取用）
+      const _children = (values.children_detail || []).length || values.children || 0;
+      const _elders = (values.elders_detail || []).length || values.elders || 0;
+      const queryParts: string[] = [];
+      if (values.origin && values.destination) queryParts.push(`从${values.origin}到${values.destination}`);
+      else if (values.destination) queryParts.push(`${values.destination}游`);
+      if (values.days) queryParts.push(`${values.days}天`);
+      queryParts.push(`${values.adults || 1}大${_children}小${_elders}老`);
+      if (values.budget_limit) queryParts.push(`预算${values.budget_limit}`);
+      if (values.tags && values.tags.length) queryParts.push(values.tags.join(" "));
+      const query = queryParts.join("，");
+
       const payload: any = {
-        query: values.query,
+        query,
         origin: values.origin,
         destination: values.destination,
         days: values.days,
@@ -56,11 +69,31 @@ export default function PlanNew() {
       if (values.start_date) payload.start_date = values.start_date.format("YYYY-MM-DD");
       if (values.end_date) payload.end_date = values.end_date.format("YYYY-MM-DD");
       if (values.adults || values.children || values.elders) {
+        const eldersDetail = (values.elders_detail || []).map((e: any) => ({
+          age: e.age || 0,
+          gender: e.gender || "男",
+        }));
+        const childrenDetail = (values.children_detail || []).map((c: any) => ({
+          age: c.age || 0,
+          height: c.height ?? null,
+          seat: !!c.seat,
+        }));
+        const studentsDetail = (values.students_detail || []).map((s: any) => ({
+          level: s.level || "大学本科",
+        }));
+        const elders = values.elders || eldersDetail.length || 0;
+        const children = childrenDetail.length || values.children || 0;
+        const students = studentsDetail.length || values.students || 0;
         payload.party = {
           adults: values.adults || 1,
-          children: values.children || 0,
-          elders: values.elders || 0,
+          children,
+          elders,
+          students,
           elder_status: values.elder_status || null,
+          adult_relation: values.adult_relation || null,
+          elders_detail: eldersDetail,
+          children_detail: childrenDetail,
+          students_detail: studentsDetail,
         };
       }
       const data = await unwrap<any>(api.post("/plans", payload));
@@ -115,22 +148,6 @@ export default function PlanNew() {
       ) : (
         <Card>
           <Form form={form} layout="vertical" onFinish={onSubmit}>
-            <Form.Item
-              name="query"
-              label={
-                <Space>
-                  需求描述
-                  <Typography.Text type="secondary">（必填，一句话描述你的旅行需求）</Typography.Text>
-                </Space>
-              }
-              rules={[{ required: true, message: "请输入需求描述" }]}
-            >
-              <Input.TextArea
-                rows={4}
-                placeholder="例如：7天云南家庭游，2大1小，预算15000，偏自然风光，少购物"
-              />
-            </Form.Item>
-
             <Row gutter={16}>
               <Col span={8}>
                 <Form.Item name="origin" label="出发地">
@@ -174,18 +191,164 @@ export default function PlanNew() {
                 </Form.Item>
               </Col>
               <Col span={8}>
-                <Form.Item name="children" label="儿童">
+                <Form.Item name="children" label="儿童数量" extra="下方按年龄/身高逐个添加">
                   <InputNumber min={0} max={20} style={{ width: "100%" }} placeholder="1" />
                 </Form.Item>
               </Col>
               <Col span={8}>
-                <Form.Item name="elders" label="老人">
+                <Form.Item name="elders" label="老人数量" extra="下方按年龄/性别逐个添加">
                   <InputNumber min={0} max={20} style={{ width: "100%" }} placeholder="0" />
                 </Form.Item>
               </Col>
             </Row>
 
             <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="students" label="学生数量" extra="下方按学历逐个添加">
+                  <InputNumber min={0} max={20} style={{ width: "100%" }} placeholder="0" />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Form.List name="students_detail">
+              {(fields, { add, remove }) => (
+                <>
+                  <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+                    学生信息（学历：高铁学生票仅限全日制大中专中小学的家校往返，旅游出行不适用）
+                  </Typography.Text>
+                  {fields.map(({ key, name, ...restField }) => (
+                    <Space key={key} align="baseline" style={{ display: "flex", marginBottom: 8 }}>
+                      <Form.Item
+                        {...restField}
+                        name={[name, "level"]}
+                        rules={[{ required: true, message: "选学历" }]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Select
+                          placeholder="学历"
+                          style={{ width: 180 }}
+                          options={[
+                            { value: "小学", label: "小学" },
+                            { value: "初中", label: "初中" },
+                            { value: "高中", label: "高中" },
+                            { value: "中专", label: "中专" },
+                            { value: "大专", label: "大专" },
+                            { value: "大学本科", label: "大学本科" },
+                            { value: "硕士研究生", label: "硕士研究生" },
+                            { value: "博士研究生", label: "博士研究生" },
+                          ]}
+                        />
+                      </Form.Item>
+                      <MinusCircleOutlined onClick={() => remove(name)} />
+                    </Space>
+                  ))}
+                  <Button type="dashed" onClick={() => add({ level: "大学本科" })} icon={<PlusOutlined />} block>
+                    添加一位学生
+                  </Button>
+                </>
+              )}
+            </Form.List>
+
+            <Form.List name="children_detail">
+              {(fields, { add, remove }) => (
+                <>
+                  <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+                    儿童信息（年龄/身高决定门票：6周岁以下或身高1.2米以下免首道大门票，6-18周岁半价；占座影响高铁/火车购票：6岁以下不占座可免票，占座需儿童优惠票）
+                  </Typography.Text>
+                  {fields.map(({ key, name, ...restField }) => (
+                    <Space key={key} align="baseline" style={{ display: "flex", marginBottom: 8 }}>
+                      <Form.Item
+                        {...restField}
+                        name={[name, "age"]}
+                        rules={[{ required: true, message: "填年龄" }]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <InputNumber min={0} max={17} placeholder="年龄(周岁)" style={{ width: 120 }} />
+                      </Form.Item>
+                      <Form.Item
+                        {...restField}
+                        name={[name, "height"]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <InputNumber min={0} max={2.5} step={0.01} placeholder="身高(米,可选)" style={{ width: 140 }} />
+                      </Form.Item>
+                      <Form.Item
+                        {...restField}
+                        name={[name, "seat"]}
+                        valuePropName="checked"
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Switch checkedChildren="占座" unCheckedChildren="不占座" />
+                      </Form.Item>
+                      <MinusCircleOutlined onClick={() => remove(name)} />
+                    </Space>
+                  ))}
+                  <Button type="dashed" onClick={() => add({ age: 6, height: 1.2, seat: false })} icon={<PlusOutlined />} block>
+                    添加一位儿童
+                  </Button>
+                </>
+              )}
+            </Form.List>
+
+            <Form.List name="elders_detail">
+              {(fields, { add, remove }) => (
+                <>
+                  <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+                    老人信息（年龄决定门票：60-64 半价，65 及以上免首道大门票，需身份证原件）
+                  </Typography.Text>
+                  {fields.map(({ key, name, ...restField }) => (
+                    <Space key={key} align="baseline" style={{ display: "flex", marginBottom: 8 }}>
+                      <Form.Item
+                        {...restField}
+                        name={[name, "age"]}
+                        rules={[{ required: true, message: "填年龄" }]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <InputNumber min={0} max={120} placeholder="年龄" style={{ width: 100 }} />
+                      </Form.Item>
+                      <Form.Item
+                        {...restField}
+                        name={[name, "gender"]}
+                        rules={[{ required: true, message: "选性别" }]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Select
+                          placeholder="性别"
+                          style={{ width: 90 }}
+                          options={[
+                            { value: "男", label: "男" },
+                            { value: "女", label: "女" },
+                          ]}
+                        />
+                      </Form.Item>
+                      <MinusCircleOutlined onClick={() => remove(name)} />
+                    </Space>
+                  ))}
+                  <Button type="dashed" onClick={() => add({ age: 60, gender: "男" })} icon={<PlusOutlined />} block>
+                    添加一位老人
+                  </Button>
+                </>
+              )}
+            </Form.List>
+
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="adult_relation" label="成人关系">
+                  <Select
+                    allowClear
+                    placeholder="选择关系（可选）"
+                    options={[
+                      { value: "情侣", label: "情侣" },
+                      { value: "单身", label: "单身" },
+                      { value: "未婚", label: "未婚" },
+                      { value: "已婚", label: "已婚" },
+                      { value: "家庭", label: "家庭" },
+                      { value: "朋友", label: "朋友" },
+                      { value: "同事", label: "同事" },
+                    ]}
+                  />
+                </Form.Item>
+              </Col>
               <Col span={8}>
                 <Form.Item name="elder_status" label="老人生活状态">
                   <Select
@@ -201,7 +364,7 @@ export default function PlanNew() {
                   />
                 </Form.Item>
               </Col>
-              <Col span={16}>
+              <Col span={8}>
                 <Form.Item name="tags" label="兴趣爱好（自由填写）">
                   <Select
                     mode="tags"

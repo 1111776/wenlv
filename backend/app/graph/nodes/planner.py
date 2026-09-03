@@ -28,6 +28,8 @@ _RESEARCH_DIMENSIONS = [
     {"keyword": "博物馆", "amap_types": "080300", "title": "博物馆文化调研"},
     {"keyword": "酒店", "amap_types": "100000", "title": "住宿酒店调研"},
     {"keyword": "餐厅", "amap_types": "050000", "title": "餐饮美食调研"},
+    {"keyword": "早餐", "amap_types": "050000", "title": "早餐小吃调研"},
+    {"keyword": "快餐", "amap_types": "050100", "title": "快餐轻食调研"},
     {"keyword": "购物中心", "amap_types": "060100", "title": "购物商圈调研"},
     {"keyword": "地铁站", "amap_types": "150500", "title": "交通出行调研"},
     {"keyword": "风景名胜", "amap_types": "110200", "title": "风景名胜调研"},

@@ -206,9 +206,45 @@ def _build_report_markdown(
         if _adults and (tk.get("adult_total") or tk.get("adult_price")):
             parts.append(f"成人 ¥{tk.get('adult_price', 0)}×{_adults}={tk.get('adult_total', 0)}")
         if _children and tk.get("child_total"):
-            parts.append(f"儿童 ¥{tk.get('child_price', 0)}×{_children}={tk.get('child_total', 0)}")
+            child_breakdown = tk.get("child_breakdown")
+            if child_breakdown:
+                # 按年龄/身高逐人展示（6岁以下或1.2米以下免票/6-18半价）
+                labels = []
+                for b in child_breakdown:
+                    h = f"/{b.get('height')}m" if b.get("height") else ""
+                    labels.append(f"{b.get('age')}岁{h} ¥{b.get('price', 0)}")
+                parts.append("儿童 " + "、".join(labels) + f"={tk.get('child_total', 0)}")
+            else:
+                parts.append(f"儿童 ¥{tk.get('child_price', 0)}×{_children}={tk.get('child_total', 0)}")
         if _elders:
+            breakdown = tk.get("elder_breakdown")
+            if breakdown:
+                # 按年龄逐人展示（65+免首道大门票/60-64半价/60以下全价）
+                labels = []
+                for b in breakdown:
+                    labels.append(f"{b.get('age')}岁{b.get('gender','')} ¥{b.get('price', 0)}")
+                parts.append("老人 " + "、".join(labels) + f"={tk.get('elder_total', 0)}")
+            else:
+                parts.append(f"老人 ¥{tk.get('elder_price', 0)}×{_elders}={tk.get('elder_total', 0)}")
+        if parts:
+            return "；".join(parts) + f"（合计¥{tk.get('total', 0)}）"
+        return f"¥{tk.get('total', 0)}"
+
+    def _transport_price_str(tk: dict | None) -> str:
+        """交通票价分档：成人/老人 + 儿童按年龄/票种逐人展示 + 购票备注。"""
+        if not tk:
+            return ""
+        parts = []
+        if _adults and tk.get("adult_total"):
+            parts.append(f"成人 ¥{tk.get('adult_price', 0)}×{_adults}={tk.get('adult_total', 0)}")
+        if _elders and tk.get("elder_total"):
             parts.append(f"老人 ¥{tk.get('elder_price', 0)}×{_elders}={tk.get('elder_total', 0)}")
+        child_bd = tk.get("child_breakdown")
+        if child_bd:
+            labels = []
+            for b in child_bd:
+                labels.append(f"{b.get('age')}岁 {b.get('tag','')} ¥{b.get('price', 0)}")
+            parts.append("儿童 " + "、".join(labels))
         if parts:
             return "；".join(parts) + f"（合计¥{tk.get('total', 0)}）"
         return f"¥{tk.get('total', 0)}"
@@ -293,8 +329,10 @@ def _build_report_markdown(
         if t.get("method"):
             lines.append(f"| 交通方式 | {t['method']} |")
         if t.get("price"):
-            tiered = _tiered_price_str(t.get("ticket"))
+            tiered = _transport_price_str(t.get("ticket"))
             lines.append(f"| 票价 | {tiered} |" if tiered else f"| 票价 | ¥{t['price']}/人 |")
+        if t.get("ticket") and t["ticket"].get("note"):
+            lines.append(f"| 购票提示 | {t['ticket']['note']} |")
         if t.get("duration"):
             lines.append(f"| 耗时 | {t['duration']} |")
         if t.get("depart_time"):
@@ -310,8 +348,10 @@ def _build_report_markdown(
             if t.get("return_method"):
                 lines.append(f"| 交通方式 | {t['return_method']} |")
             if t.get("return_price"):
-                tiered = _tiered_price_str(t.get("return_ticket"))
+                tiered = _transport_price_str(t.get("return_ticket"))
                 lines.append(f"| 票价 | {tiered} |" if tiered else f"| 票价 | ¥{t['return_price']}/人 |")
+            if t.get("return_ticket") and t["return_ticket"].get("note"):
+                lines.append(f"| 购票提示 | {t['return_ticket']['note']} |")
             if t.get("return_duration"):
                 lines.append(f"| 耗时 | {t['return_duration']} |")
             lines.append("")
@@ -355,6 +395,11 @@ def _build_report_markdown(
             lines.append(f"| 🌅 上午 | **{m.get('spot','-')}** | {m.get('address','')} | {_spot_price(m)} | {_short_time(m.get('opentime',''))} | {_route_str(m.get('route'))} |")
             lines.append(f"| ☀️ 下午 | **{a.get('spot','-')}** | {a.get('address','')} | {_spot_price(a)} | {_short_time(a.get('opentime',''))} | {_route_str(a.get('route'))} |")
             lines.append(f"| 🌙 晚上 | **{e.get('spot','-')}** | {e.get('address','')} | {_spot_price(e)} | {_short_time(e.get('opentime',''))} | — |")
+            # 优待备注：有儿童/老人时标注该人群的免/半价政策
+            for spot in (m, a, e):
+                note = spot.get("note")
+                if note:
+                    lines.append(f"> 🎫 {spot.get('spot','')}：{note}")
             lines.append("")
 
             # 餐饮安排

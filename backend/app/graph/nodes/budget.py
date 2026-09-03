@@ -21,8 +21,8 @@ from app.models.agent_task import TASK_STATUS
 logger = get_logger(__name__)
 
 
-def _party_counts(preferences: dict) -> tuple[int, int, int]:
-    """取成人/儿童/老人人数。
+def _party_counts(preferences: dict) -> tuple[int, int, int, list[dict], list[dict]]:
+    """取成人/儿童/老人人数 + 老人明细 + 儿童明细。
 
     优先从 preferences 顶层字段（Intake 归一化后写入的 adults/children/elders），
     否则从 party 结构化字段。保证至少 1 个成人。
@@ -30,9 +30,13 @@ def _party_counts(preferences: dict) -> tuple[int, int, int]:
     adults = preferences.get("adults")
     children = preferences.get("children", 0)
     elders = preferences.get("elders", 0)
+    party = preferences.get("party") or {}
+    # 老人明细（年龄+性别）优先从顶层取，其次从 party 取 —— 不依赖 adults 是否为 None，
+    # 否则 intake 已把 adults 写到顶层时，party 里的 elders_detail 会被漏掉导致老人误按全免兜底。
+    elders_detail = preferences.get("elders_detail") or party.get("elders_detail") or []
+    children_detail = preferences.get("children_detail") or party.get("children_detail") or []
 
     if adults is None:
-        party = preferences.get("party") or {}
         adults = party.get("adults", 1)
         children = party.get("children", 0)
         elders = party.get("elders", 0)
@@ -42,13 +46,16 @@ def _party_counts(preferences: dict) -> tuple[int, int, int]:
     elders = int(elders or 0)
     if adults + children + elders <= 0:
         adults = 1
-    return adults, children, elders
+    return adults, children, elders, elders_detail, children_detail
 
 
 def _build_budget_items(
-    destination: str, days: int, adults: int, children: int, elders: int
+    destination: str, days: int, adults: int, children: int, elders: int,
+    elders_detail: list[dict] | None = None, children_detail: list[dict] | None = None,
 ) -> list[dict]:
     """预算项按成人/儿童/老人分档计费（车票/门票折扣与报告一致；餐饮按总人数）。"""
+    from app.agents.ticket_pricing import elder_ticket_discount, child_ticket_discount
+
     people = adults + children + elders
     hotel_nights = max(days - 1, 1)  # 住宿晚数 = 天数 - 1（N 天住 N-1 晚）
     hotel_cost = hotel_total(destination, hotel_nights)
@@ -63,13 +70,24 @@ def _build_budget_items(
         + int(traffic_base * settings.transport_child_discount) * children
         + int(traffic_base * settings.transport_elder_discount) * elders
     )
-    # 门票：成人全价，儿童/老人按配置折扣（老人默认免费）
+    # 门票：成人全价；儿童按年龄/身高分档（6岁以下或1.2米以下免票，6-18半价）；
+    # 老人按年龄分档（65+ 免首道大门票 / 60-64 半价 / 60 以下全价）
     ticket_daily = 150 * days
-    ticket = (
-        ticket_daily * adults
-        + int(ticket_daily * settings.ticket_child_discount) * children
-        + int(ticket_daily * settings.ticket_elder_discount) * elders
-    )
+    ticket = ticket_daily * adults
+    if children_detail:
+        for c in children_detail:
+            if not isinstance(c, dict):
+                continue
+            ticket += int(ticket_daily * child_ticket_discount(c.get("age", 0), c.get("height")))
+    else:
+        ticket += int(ticket_daily * settings.ticket_child_discount) * children
+    if elders_detail:
+        for e in elders_detail:
+            if not isinstance(e, dict):
+                continue
+            ticket += int(ticket_daily * elder_ticket_discount(e.get("age", 0)))
+    else:
+        ticket += int(ticket_daily * settings.ticket_elder_discount) * elders
 
     party_label = f"{adults}大{children}小{elders}老" if elders else f"{adults}大{children}小"
 
@@ -89,9 +107,9 @@ async def budget_node(state: TravelState) -> dict:
     days = preferences.get("days", 7)
     destination = preferences.get("destination") or "目的地"
     budget_limit = preferences.get("budget_limit") or 15000
-    adults, children, elders = _party_counts(preferences)
+    adults, children, elders, elders_detail, children_detail = _party_counts(preferences)
 
-    items = _build_budget_items(destination, days, adults, children, elders)
+    items = _build_budget_items(destination, days, adults, children, elders, elders_detail, children_detail)
     total = sum(i["amount"] for i in items)
     over_ratio = (total - budget_limit) / budget_limit if budget_limit else 0.0
 
