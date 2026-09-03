@@ -13,6 +13,7 @@ venv/
 # 运行时数据
 backend/workspace/
 *.log
+*.dump
 
 # 前端
 frontend/node_modules/

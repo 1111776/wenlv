@@ -14,6 +14,7 @@ from datetime import datetime
 from sqlalchemy import BigInteger, DateTime, Index, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
+from pgvector.sqlalchemy import Vector
 
 from app.core.database import Base
 
@@ -27,7 +28,7 @@ class GraphNode(Base):
     key: Mapped[str] = mapped_column(String(128), nullable=False)  # 业务键
     owner_user_id: Mapped[uuid.UUID | None] = mapped_column()  # user_scoped 节点归属
     properties: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    embedding: Mapped[list | None] = mapped_column(JSONB)  # 向量（应用层余弦，非 pgvector）
+    embedding: Mapped[list | None] = mapped_column(Vector(768))  # 语义向量（pgvector，维度=embedding_dim）
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

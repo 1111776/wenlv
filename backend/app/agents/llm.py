@@ -17,6 +17,23 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _hash_embedding(text: str, dim: int) -> list[float]:
+    """确定性哈希向量（Mock / 无 key 兜底），非语义向量，仅保证相同文本向量一致。"""
+    import hashlib
+    import re
+
+    vec = [0.0] * dim
+    tokens = re.findall(r"[一-龥]|[a-zA-Z]+", (text or "").lower())
+    for tok in tokens:
+        h = hashlib.md5(tok.encode("utf-8")).digest()
+        idx = h[0] % dim
+        vec[idx] += 1.0
+    norm = sum(v * v for v in vec) ** 0.5
+    if norm > 0:
+        vec = [v / norm for v in vec]
+    return vec
+
+
 @dataclass
 class LLMResult:
     """一次 LLM 调用的统一返回。
@@ -33,7 +50,7 @@ class LLMResult:
 
 
 class LLMProvider(Protocol):
-    """LLM 调用协议，真实实现只需实现这一个方法。"""
+    """LLM 调用协议，真实实现只需实现这两个方法。"""
 
     async def complete(
         self,
@@ -46,6 +63,17 @@ class LLMProvider(Protocol):
         Args:
             messages: OpenAI 风格 ``[{"role", "content"}, ...]``。
             schema: 可选 JSON Schema，要求模型返回结构化 JSON。
+        """
+        ...
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        """把文本列表向量化，返回等长向量列表（用于 RAG 检索）。
+
+        Args:
+            texts: 待向量化的文本列表（非空）。
+
+        Returns:
+            与 texts 等长的向量列表，每个向量维度 = settings.embedding_dim。
         """
         ...
 
@@ -93,6 +121,10 @@ class MockLLMProvider:
             structured = _minimal_for_schema(schema)
         logger.debug("mock llm complete agent=%s schema=%s", agent_type, schema is not None)
         return LLMResult(text=text, structured=structured, model=self.model)
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        """Mock 向量化：确定性哈希向量（非语义，仅保证相同文本向量一致）。"""
+        return [_hash_embedding(t, settings.embedding_dim) for t in texts]
 
 
 def _extract_agent_type(messages: list[dict]) -> str:
@@ -205,6 +237,40 @@ class OpenAICompatProvider:
             structured=structured,
             model=data.get("model", self.model),
         )
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        """百炼 OpenAI 兼容 /embeddings 向量化，返回等长向量列表。
+
+        失败时降级为确定性哈希向量（保证系统无 key 也能跑）。
+        """
+        import httpx
+
+        url = f"{self.base_url.rstrip('/')}/embeddings"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": settings.embedding_model,
+            "input": texts,
+            "dimensions": settings.embedding_dim,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
+                resp = await client.post(url, headers=headers, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+            # 按 input 顺序取回向量
+            items = data.get("data") or []
+            items_sorted = sorted(items, key=lambda x: x.get("index", 0))
+            vecs = [it.get("embedding") or [] for it in items_sorted]
+            if len(vecs) != len(texts):
+                logger.warning("embed 返回数量不匹配 expected=%d got=%d", len(texts), len(vecs))
+                return [_hash_embedding(t, settings.embedding_dim) for t in texts]
+            return vecs
+        except Exception as exc:
+            logger.warning("embed 调用失败，降级哈希向量：%s", exc)
+            return [_hash_embedding(t, settings.embedding_dim) for t in texts]
 
 
 # --------------------------------------------------------------------------- #

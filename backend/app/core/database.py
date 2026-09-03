@@ -72,6 +72,7 @@ async def init_db() -> None:
         AgentTask,
         AuditLog,
         BudgetRecord,
+        DocumentChunk,
         GraphEdge,
         GraphNode,
         Intervention,
@@ -82,6 +83,11 @@ async def init_db() -> None:
     )
 
     async with engine.begin() as conn:
+        # pgvector 扩展（幂等），须在建表前确保 vector 类型可用
+        if settings.vector_backend == "pgvector":
+            from sqlalchemy import text
+
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
 
     # 建表完成后写入预置账号（S20 seed）

@@ -2,7 +2,7 @@
 # 服务：api / worker / redis / postgres / frontend / prometheus / grafana
 services:
   postgres:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     environment:
       POSTGRES_USER: wenlv
       POSTGRES_PASSWORD: wenlv
@@ -41,6 +41,9 @@ services:
       WENLV_LLM_API_KEY: ${WENLV_LLM_API_KEY:-}
       WENLV_LLM_BASE_URL: ${WENLV_LLM_BASE_URL:-}
       WENLV_LLM_MODEL: ${WENLV_LLM_MODEL:-}
+      WENLV_EMBEDDING_MODEL: ${WENLV_EMBEDDING_MODEL:-text-embedding-v3}
+      WENLV_EMBEDDING_DIM: ${WENLV_EMBEDDING_DIM:-768}
+      WENLV_VECTOR_BACKEND: ${WENLV_VECTOR_BACKEND:-pgvector}
       WENLV_HITL_DEMO: "true"
       # 高德 key 从环境变量注入（见根目录 .env，不入 git）
       WENLV_AMAP_KEY: ${WENLV_AMAP_KEY:-}
@@ -49,6 +52,7 @@ services:
       - "8001:8000"
     volumes:
       - workspace:/app/workspace
+      - ./docs/knowledge:/app/knowledge:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -73,12 +77,16 @@ services:
       WENLV_LLM_API_KEY: ${WENLV_LLM_API_KEY:-}
       WENLV_LLM_BASE_URL: ${WENLV_LLM_BASE_URL:-}
       WENLV_LLM_MODEL: ${WENLV_LLM_MODEL:-}
+      WENLV_EMBEDDING_MODEL: ${WENLV_EMBEDDING_MODEL:-text-embedding-v3}
+      WENLV_EMBEDDING_DIM: ${WENLV_EMBEDDING_DIM:-768}
+      WENLV_VECTOR_BACKEND: ${WENLV_VECTOR_BACKEND:-pgvector}
       WENLV_HITL_DEMO: "true"
       # 高德 key 从环境变量注入（见根目录 .env，不入 git）
       WENLV_AMAP_KEY: ${WENLV_AMAP_KEY:-}
       WENLV_AMAP_ENABLED: "true"
     volumes:
       - workspace:/app/workspace
+      - ./docs/knowledge:/app/knowledge:ro
     depends_on:
       postgres:
         condition: service_healthy

@@ -13,6 +13,7 @@ from app.models.graph_node import GraphNode
 from app.models.graph_edge import GraphEdge
 from app.models.memory_event import MemoryEvent
 from app.models.intervention import Intervention
+from app.models.document_chunk import DocumentChunk
 
 __all__ = [
     "User",
@@ -25,4 +26,5 @@ __all__ = [
     "GraphEdge",
     "MemoryEvent",
     "Intervention",
+    "DocumentChunk",
 ]

@@ -195,21 +195,29 @@ async def extract_triples(text: str, owner_user_id: uuid.UUID | None = None) -> 
     return rule_extract_triples(text, owner_user_id)
 
 
-def _text_embedding(text: str, dim: int = 64) -> list[float]:
-    """确定性哈希 embedding（Mock，非语义向量，仅保证相同文本向量一致）。"""
-    import hashlib
+async def _embed(texts: list[str]) -> list[list[float]]:
+    """语义向量化（真 LLM / Mock 哈希兜底），返回等长向量列表。
 
-    vec = [0.0] * dim
-    tokens = re.findall(r"[一-龥]|[a-zA-Z]+", text.lower())
-    for tok in tokens:
-        h = hashlib.md5(tok.encode("utf-8")).digest()
-        idx = h[0] % dim
-        vec[idx] += 1.0
-    # 归一化
-    norm = sum(v * v for v in vec) ** 0.5
-    if norm > 0:
-        vec = [v / norm for v in vec]
-    return vec
+    分批请求（每批 16 个），避免百炼 embedding 单次 input 过大导致服务器断连/400。
+    """
+    from app.agents.llm import get_llm
+
+    if not texts:
+        return []
+
+    batch_size = 10  # 百炼 text-embedding-v3 单次 input 上限为 10
+    llm = get_llm()
+    out: list[list[float]] = []
+    try:
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i : i + batch_size]
+            out.extend(await llm.embed(batch))
+        return out
+    except Exception as exc:
+        logger.warning("embed 失败，降级哈希：%s", exc)
+        from app.agents.llm import _hash_embedding
+
+        return [_hash_embedding(t, settings.embedding_dim) for t in texts]
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -300,16 +308,23 @@ async def extract_and_store(
 
     count = 0
     try:
-        async with session_scope() as db:
-            for t in triples:
-                src_emb = _text_embedding(f"{t['src_type']}:{t['src_key']}")
-                dst_emb = _text_embedding(f"{t['dst_type']}:{t['dst_key']}")
+        # 批量向量化所有 (src_key, dst_key) 文本，减少 embedding 调用次数
+        texts_to_embed = [
+            f"{t['src_type']}:{t['src_key']}" for t in triples
+        ] + [
+            f"{t['dst_type']}:{t['dst_key']}" for t in triples
+        ]
+        embs = await _embed(texts_to_embed)
+        src_embs = embs[: len(triples)]
+        dst_embs = embs[len(triples):]
 
+        async with session_scope() as db:
+            for i, t in enumerate(triples):
                 src = await _upsert_node(
-                    db, t["node_class"], t["src_type"], t["src_key"], {}, owner_user_id, src_emb
+                    db, t["node_class"], t["src_type"], t["src_key"], {}, owner_user_id, src_embs[i]
                 )
                 dst = await _upsert_node(
-                    db, t["node_class"], t["dst_type"], t["dst_key"], t["properties"], owner_user_id, dst_emb
+                    db, t["node_class"], t["dst_type"], t["dst_key"], t["properties"], owner_user_id, dst_embs[i]
                 )
                 await _upsert_edge(db, src.id, dst.id, t["relation"], t["properties"], 0.9)
 
@@ -351,6 +366,8 @@ async def retrieve(
     """
     import json as _json
 
+    from app.core.config import settings
+
     # 缓存 key：查询词 + 用户域（hash 稳定）
     cache_key = key(f"memory:retrieve:{_hash_key(query, user_id)}")
 
@@ -363,24 +380,40 @@ async def retrieve(
     except Exception:
         pass  # 缓存不可用直接查 DB
 
-    query_emb = _text_embedding(query)
+    query_emb = (await _embed([query]))[0]
 
     async with session_scope() as db:
-        nodes = (
-            await db.execute(
-                select(GraphNode).where(
+        if settings.vector_backend == "pgvector":
+            # pgvector 余弦距离：<=> 越小越相似，取 top_k 候选
+            from sqlalchemy import text as _text
+
+            stmt = (
+                select(GraphNode, GraphNode.embedding.cosine_distance(query_emb).label("dist"))
+                .where(
                     (GraphNode.node_class == "chat_memory")
                     | (GraphNode.owner_user_id == user_id if user_id else True)
                 )
+                .order_by(GraphNode.embedding.cosine_distance(query_emb))
+                .limit(top_k)
             )
-        ).scalars().all()
-
-        # 向量相似打分
-        scored: list[tuple[GraphNode, float]] = []
-        for n in nodes:
-            sim = _cosine(query_emb, n.embedding or [])
-            if sim > 0:
-                scored.append((n, sim))
+            rows = (await db.execute(stmt)).all()
+            scored: list[tuple[GraphNode, float]] = [
+                (n, round(1.0 - float(dist), 4)) for n, dist in rows if n.embedding is not None
+            ]
+        else:
+            nodes = (
+                await db.execute(
+                    select(GraphNode).where(
+                        (GraphNode.node_class == "chat_memory")
+                        | (GraphNode.owner_user_id == user_id if user_id else True)
+                    )
+                )
+            ).scalars().all()
+            scored = []
+            for n in nodes:
+                sim = _cosine(query_emb, n.embedding or [])
+                if sim > 0:
+                    scored.append((n, sim))
 
         # 图拓扑：从命中节点出发取 1 跳邻域
         result: list[dict] = []
