@@ -34,7 +34,7 @@ SLIDE_W = Inches(13.333)  # 16:9
 SLIDE_H = Inches(7.5)
 FONT = "微软雅黑"
 
-TOTAL = 18
+TOTAL = 19
 
 
 def new_prs():
@@ -123,8 +123,8 @@ def cover(prs, img_path):
     add_rect(slide, 0, 0, SLIDE_W, SLIDE_H, RGBColor(0x0A, 0x16, 0x28))
     add_text(slide, Inches(1.0), Inches(2.0), Inches(11.3), Inches(1.2), "山海行 · 文旅多 Agent 行程规划系统", size=42, color=WHITE, bold=True)
     add_text(slide, Inches(1.0), Inches(3.3), Inches(11.3), Inches(0.8), "基于 8 个 AI Agent 协作的文旅资源调研与个性化行程规划", size=20, color=RGBColor(0xD0, 0xE4, 0xFF))
-    add_text(slide, Inches(1.0), Inches(4.25), Inches(11.3), Inches(0.6), "真实数据 · 断点续传 · 图记忆 · 运行态强干预 · HITL 人工审核 · 人群个性化适配", size=15, color=RGBColor(0xB0, 0xD0, 0xF0))
-    add_text(slide, Inches(1.0), Inches(6.3), Inches(11.3), Inches(0.5), "版本 v3.0 · 2026-09-02 · 1 人独立完成", size=13, color=RGBColor(0x90, 0xB0, 0xD0))
+    add_text(slide, Inches(1.0), Inches(4.25), Inches(11.3), Inches(0.6), "真实数据 · 断点续传 · 图记忆 · 运行态强干预 · HITL 人工审核 · 人群适配 · RAG 检索增强", size=15, color=RGBColor(0xB0, 0xD0, 0xF0))
+    add_text(slide, Inches(1.0), Inches(6.3), Inches(11.3), Inches(0.5), "版本 v3.1 · 2026-09-03 · 1 人独立完成", size=13, color=RGBColor(0x90, 0xB0, 0xD0))
 
 
 def toc(prs):
@@ -135,9 +135,10 @@ def toc(prs):
         "01  项目背景", "02  项目痛点", "03  项目目标与需求", "04  技术难点",
         "05  项目亮点", "06  系统架构", "07  8 个 Agent 详解", "08  核心技术实现",
         "09  数据源与数据模型", "10  API 与前端", "11  部署与启动", "12  完整流程演示",
-        "13  测试与验收", "14  设计决策", "15  个性化人群适配", "16  总结",
+        "13  测试与验收", "14  设计决策", "15  个性化人群适配", "16  RAG 检索增强生成",
+        "17  总结",
     ]
-    half = 8
+    half = 9
     for i, it in enumerate(items):
         col = 0 if i < half else 1
         row = i if i < half else i - half
@@ -219,6 +220,8 @@ def main():
         ("痛点3：长任务无容灾", "8 个 Agent 跑几分钟，中途进程崩溃，前面工作全丢 —— 缺断点续传。"),
         ("痛点4：无风险拦截", "人工排行程可能推荐差评景点、超预算 20%、高危夜行路段 —— 缺 HITL 人机门控。"),
         ("痛点5：假数据假智能", "早期用写死种子数据 + Mock LLM，景点路线推理全是假的 —— 缺真实数据接入。"),
+        ("痛点6：无人群适配", "不管老人还是儿童，行程千篇一律：老人被推荐去滑雪、儿童去酒吧、早餐排火锅、门票不按年龄分档。"),
+        ("痛点7：知识不沉淀", "景区政策/地方美食靠写死代码或 LLM 记忆，改起来要改代码、会编造会过时 —— 缺 RAG 检索增强。"),
     ], 4)
 
     # 三、项目目标与需求
@@ -226,7 +229,8 @@ def main():
         ("一句话目标", "把「人工排行程」改造成「AI 自动调研工厂」：输入一句自然语言，8 个 AI Agent 自动完成调研、编排、预算、报告。"),
         ("核心功能", "① 8 Agent 协同编排 ② planning-with-files 断点续传 ③ 五状态机+原子写入 ④ HITL 人工审核 ⑤ 安全（内容过滤+防注入）。"),
         ("工单7叠加", "① 共享图记忆（跨行程沉淀知识图谱，修复语义遗忘）② 运行态强干预（主管带验签修改运行中状态）。"),
-        ("人群个性化", "老人按年龄分档门票（60-64半价/65+免首道大门票）+ 成人关系 + 儿童/老人景点过滤 + 兴趣标签推荐。"),
+        ("人群个性化", "老人/儿童门票按年龄分档 + 交通购票按年龄分档 + 成人关系 + 儿童/老人景点过滤 + 兴趣标签推荐。"),
+        ("RAG 检索增强", "pgvector + 百炼 embedding + 文旅知识库（6类语料）+ AI 目的地解读。"),
         ("性能红线", "QPS≥200 / P95<300ms / 错误率<0.1% / 检索<150ms / 干预成功率=100%。"),
     ], 5)
 
@@ -259,8 +263,8 @@ def main():
         ("API 网关层", "FastAPI + JWT/RBAC + 统一错误码 + HMAC 验签，只做入队/查询，不执行长任务。"),
         ("业务服务层", "高德服务、原子写、分布式锁、队列、恢复、安全过滤等可复用逻辑。"),
         ("Agent 编排层", "LangGraph StateGraph + 8 节点 DAG + 条件边 + 记忆抽取 + 干预补丁读取。"),
-        ("数据层", "PostgreSQL(10表权威) + Redis(Streams/锁/缓存) + 文件(断点恢复源)。"),
-        ("外部数据源", "高德地图(地理编码/POI/路径/天气/营业时间/图片) + 阿里云百炼 LLM。"),
+        ("数据层", "PostgreSQL(pgvector,11表权威) + Redis(Streams/锁/缓存) + 文件(断点恢复源) + 知识库向量。"),
+        ("外部数据源", "高德地图(地理编码/POI/路径/天气/图片) + 百炼 LLM(qwen3.7-flash) + Embedding(text-embedding-v3)。"),
     ], 8)
 
     # 七、8个Agent详解
@@ -289,21 +293,23 @@ def main():
     # 九、数据源与数据模型
     bullets_slide(prs, "九、数据源与数据模型", [
         ("高德地图(1 key 6能力)", "地理编码/POI搜索/路径规划/天气/营业时间/景点图片，全真实数据。"),
-        ("阿里云百炼 LLM", "qwen3.7-flash，出发地/目的地解析 + 交通票价估算 + 记忆抽取（Mock 可切真实）。"),
+        ("阿里云百炼 LLM", "qwen3.7-flash，出发地/目的地解析 + 交通票价估算 + 记忆抽取 + RAG 生成（Mock 可切真实）。"),
+        ("百炼 Embedding", "text-embedding-v3（768 维，OpenAI 兼容），语义向量化（图记忆 + 知识库）。"),
         ("虚拟房价", "真实酒店 POI 名 + 城市等级分档估算价（一线/二线/其他三档）。"),
-        ("虚拟门票/人均", "景点门票按年龄分档（老人60-64半价/65+免首道）+ 餐厅人均参考价。"),
+        ("虚拟门票/人均", "景点门票按年龄分档（老人60-64半价/65+免首道、儿童6岁以下免/6-18半价）+ 餐厅人均参考价。"),
         ("业务表(6张)", "users / travel_plans / agent_tasks / review_records / budget_records / audit_logs。"),
         ("图记忆表(4张)", "graph_nodes / graph_edges / memory_events / interventions。"),
-        ("密钥安全", ".env 注入 + .gitignore 忽略，真实 key 不入 git。"),
+        ("知识库表(1张)", "document_chunks（6类语料，38 chunk，Vector 768）。"),
     ], 11)
 
     # 十、API与前端
     bullets_slide(prs, "十、API 与前端", [
         ("API(5组20+接口)", "认证(register含角色/login) / 行程(create/list/detail/status/agents/plan-file/report/cancel/delete/PATCH itinerary) / 审核 / 记忆(工单7) / 运维。"),
         ("记忆接口(工单7)", "intervene(强干预) / rollback(回滚) / graph(子图) / search(检索) / interventions(历史)。"),
-        ("前端 6 页面", "登录注册 / 工作台 / 行程列表 / 行程详情 / 审核台 / 记忆图谱。"),
-        ("行程详情亮点", "出发地交通方式+票价 + 景点图片(可放大) + 三餐餐饮 + 门票按年龄分档 + 营业时间 + 编辑行程。"),
-        ("创建表单亮点", "成人关系(情侣/单身/未婚/已婚/家庭/朋友/同事) + 老人信息(年龄+性别可多个) + 兴趣自由填。"),
+        ("前端 7 页面", "登录注册 / 工作台 / 行程列表 / 行程详情 / 审核台 / 记忆图谱 / 问答式创建。"),
+        ("行程详情亮点", "出发地交通方式+票价 + 景点图片(可放大) + 三餐餐饮 + 门票按年龄分档 + 优待备注 + 编辑行程。"),
+        ("创建表单亮点", "成人关系 + 老人信息(年龄+性别+状态) + 儿童信息(年龄+身高+占座) + 学生学历 + 购票/酒店方式。"),
+        ("问答式创建", "10 步引导式逐步问答（出发地→目的地→天数→预算→成人→儿童→老人→学生→偏好→确认）。"),
     ], 12)
 
     # 十一、部署与启动
@@ -323,6 +329,8 @@ def main():
         ("场景C 注入拦截", "第7页含「忽略之前指令」对抗样本 → 拦截 → 标记 blocked → 写审计日志。"),
         ("场景D 人工审核", "超预算/夜行/舆情 → 挂起 → 主管抢占 → 通过 → 续跑出报告。"),
         ("场景E 图记忆+干预", "行程1说「海鲜过敏」→ 行程2自动避开；主管干预「台风停运」→ 运行中自动剔除。"),
+        ("场景F 人群适配", "带65岁老人+5岁儿童 → 老人门票免首道、儿童免票；剔除滑雪/酒吧；早餐吃地方特色早餐。"),
+        ("场景G RAG增强", "检索知识库(门票政策+云南美食) → 报告生成「目的地深度解读」，有据可查、带人群感知。"),
     ], 14)
 
     # 十三、测试与验收
@@ -332,6 +340,7 @@ def main():
         ("单元测试", "8 个用例全绿(test_memory_intervention.py：三元组抽取/验签/embedding)。"),
         ("联调脚本", "e2e_check / recovery_test / simulate_conversation(15轮) / concurrent(50并发) / verify_retrieve_latency。"),
         ("竞态审计", "50 并发干预零丢失更新(Lost Update=0)，版本链完整可回放。"),
+        ("RAG 检索验证", "老人门票政策 0.83 / 早餐吃什么 0.69 / 儿童高铁买票 0.83 / 海鲜过敏 0.67。"),
     ], 15)
 
     # 十四、设计决策
@@ -339,41 +348,53 @@ def main():
         ("编排框架", "LangGraph（工单首选，7人日不允许自研图引擎）。"),
         ("队列", "Redis Streams（PEL 原生断点，比 Celery 轻）。"),
         ("LLM", "抽象 Provider，Mock→真实切换（压测不烧钱，演示切真模型）。"),
-        ("图存储", "PostgreSQL 应用层向量（不引 Neo4j/pgvector，单机原则）。"),
+        ("图存储", "PostgreSQL + pgvector（不引 Neo4j，单机原则）。"),
+        ("Embedding", "百炼 text-embedding-v3（768 维，复用现有 key，OpenAI 兼容）。"),
         ("记忆引擎", "自研轻量 Mem0 风格（3人日不允许消化外部框架黑盒）。"),
         ("强干预", "HMAC + nonce + 三写事务（工单红线：安全验签）。"),
     ], 16)
 
     # 十五、个性化人群适配
-    bullets_slide(prs, "十五、个性化人群适配（本期新增）", [
+    bullets_slide(prs, "十五、个性化人群适配", [
         ("老人门票分档", "按年龄：60 以下全价 / 60-64 半价 / 65+ 免首道大门票（国有A级景区规则），只免首道门票，观光车/索道/演出另计。"),
-        ("老人信息表单", "创建页可逐位填写老人年龄+性别（可多个），门票按每人年龄独立计算，报告逐人展示。"),
-        ("成人关系", "创建页新增成人关系：情侣/单身/未婚/已婚/家庭/朋友/同事，随行程一起存储。"),
-        ("儿童/老人景点过滤", "有老人剔除滑雪/漂流/登山/雪山等高强度项目；有儿童剔除酒吧/夜店/KTV；家庭模式剔除网吧/足浴等夜生活。"),
-        ("景点友好排序", "兴趣标签匹配 + 亲子/老人友好加权：有儿童优先乐园/动物园，有老人优先公园/博物馆/古镇。"),
-        ("餐饮三餐规范", "早餐只吃早餐类(包子/粥/豆浆/馄饨等)，无早餐店留空绝不硬塞正餐；早餐/快餐专门调研；三餐跨天不重复。"),
+        ("儿童门票分档", "6周岁以下或身高1.2米以下免首道大门票（二选一）、6-18半价；只免首道，民营景区以公示为准。"),
+        ("交通购票分档", "高铁(6岁以下免票不占座/6-14半价/14+全价)；飞机(婴儿票10%/儿童5折/12+成人)；学生票仅限家校往返。"),
+        ("人群信息表单", "成人关系 + 老人(年龄+性别+状态) + 儿童(年龄+身高+占座) + 学生(学历) + 购票/酒店方式。"),
+        ("人群过滤+兴趣", "有老人剔除滑雪/登山/雪山；有儿童剔除酒吧/夜店；兴趣标签+亲子/老人友好加权排序。"),
+        ("餐饮三餐规范", "早餐只吃早餐类(不吃火锅/烤鸭)；早餐/快餐专门调研；三餐跨天不重复。"),
     ], 17)
 
-    # 十六、总结
+    # 十六、RAG 检索增强生成
+    bullets_slide(prs, "十六、RAG 检索增强生成", [
+        ("技术底座", "pgvector(PostgreSQL扩展) + 百炼 text-embedding-v3(768维) + OpenAI 兼容 /embeddings，batch=10 规避单次上限。"),
+        ("场景A 个人记忆", "图记忆 embedding 从 JSONB 换 Vector(768)，MD5哈希假向量换真语义向量，「海鲜过敏」能召回「对虾过敏」。"),
+        ("场景B 文旅知识库", "document_chunks 表存 6 类语料(景点攻略/地方美食/景区政策/四季玩法/交通贴士/住宿贴士)，38 个分块。"),
+        ("检索(R)", "search_kb() 用 pgvector 余弦距离召回 top-k 原文 chunk；web_research + itinerary 两节点注入。"),
+        ("生成(G)", "report 节点 _generate_rag_insights() 让 LLM 基于原文生成「目的地深度解读」，有据可查、带人群感知。"),
+        ("降级安全", "非 real 模式或检索为空或 LLM 失败时返回 None，报告照常出（只少一节），不阻塞主流程。"),
+    ], 18)
+
+    # 十七、总结
     slide = blank(prs)
     set_bg(slide, LIGHT)
     add_rect(slide, 0, Inches(2.1), Inches(0.25), Inches(1.6), PRIMARY)
     add_text(slide, Inches(0.9), Inches(2.1), Inches(11), Inches(1.0), "总结", size=30, color=DARK, bold=True)
     pts = [
-        ("完成度", "原始需求(多Agent-2) + 工单7(图记忆+强干预) + 人群个性化适配 全部落地，验收级完整。"),
-        ("数据真实性", "全链路真实数据（高德+百炼），无假数据假智能。"),
-        ("个性化能力", "老人按年龄分档门票 + 儿童/老人景点过滤 + 兴趣推荐 + 餐饮三餐规范。"),
+        ("完成度", "原始需求(多Agent-2) + 工单7(图记忆+强干预) + 人群适配 + RAG 检索增强 全部落地，验收级完整。"),
+        ("数据真实性", "全链路真实数据（高德+百炼 LLM+Embedding），无假数据假智能。"),
+        ("个性化能力", "老人/儿童门票按年龄分档 + 交通购票分档 + 人群过滤 + 兴趣推荐 + 餐饮规范。"),
+        ("RAG 能力", "pgvector + 语义向量 + 文旅知识库 + AI 目的地解读，检索增强生成完整闭环。"),
         ("性能", "四项指标全部达标且大幅超标（QPS 5.5x / 检索快500x）。"),
-        ("核心能力", "断点续传 + HITL + 图记忆 + 强干预 + 安全 + 人群适配，六维完整。"),
+        ("核心能力", "断点续传 + HITL + 图记忆 + 强干预 + 安全 + 人群适配 + RAG，七维完整。"),
     ]
-    top = Inches(3.1)
+    top = Inches(2.9)
     for i, (t, c) in enumerate(pts):
-        ct = top + i * Inches(0.72)
-        add_rect(slide, Inches(0.9), ct, Inches(11.5), Inches(0.62), WHITE)
-        add_rect(slide, Inches(0.9), ct, Inches(0.08), Inches(0.62), PRIMARY)
-        add_text(slide, Inches(1.2), ct + Inches(0.07), Inches(2.0), Inches(0.5), t, size=14, color=PRIMARY_DARK, bold=True)
-        add_text(slide, Inches(3.2), ct + Inches(0.07), Inches(9.0), Inches(0.5), c, size=11.5, color=DARK)
-    footer(slide, 18)
+        ct = top + i * Inches(0.68)
+        add_rect(slide, Inches(0.9), ct, Inches(11.5), Inches(0.6), WHITE)
+        add_rect(slide, Inches(0.9), ct, Inches(0.08), Inches(0.6), PRIMARY)
+        add_text(slide, Inches(1.2), ct + Inches(0.06), Inches(2.0), Inches(0.5), t, size=13, color=PRIMARY_DARK, bold=True)
+        add_text(slide, Inches(3.2), ct + Inches(0.06), Inches(9.0), Inches(0.5), c, size=11, color=DARK)
+    footer(slide, 19)
 
     prs.save(out)
     print(f"PPT 已生成：{out}")
