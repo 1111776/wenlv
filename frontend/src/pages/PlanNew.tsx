@@ -64,6 +64,8 @@ export default function PlanNew() {
         days: values.days,
         budget_limit: values.budget_limit,
         tags: values.tags || [],
+        ticket_purchase_mode: values.ticket_purchase_mode || null,
+        hotel_booking_mode: values.hotel_booking_mode || null,
       };
       // 日期转字符串（后端存 YYYY-MM-DD）
       if (values.start_date) payload.start_date = values.start_date.format("YYYY-MM-DD");
@@ -180,6 +182,33 @@ export default function PlanNew() {
               <Col span={8}>
                 <Form.Item name="days" label="天数（选日期自动算）">
                   <InputNumber min={1} max={30} style={{ width: "100%" }} placeholder="7" />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item name="ticket_purchase_mode" label="购票方式">
+                  <Select
+                    allowClear
+                    placeholder="选择购票方式（可选）"
+                    options={[
+                      { value: "bundle", label: "一次性买票" },
+                      { value: "separate", label: "分开买票" },
+                    ]}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="hotel_booking_mode" label="酒店预订方式">
+                  <Select
+                    allowClear
+                    placeholder="选择酒店预订方式（可选）"
+                    options={[
+                      { value: "bundle", label: "一次性订" },
+                      { value: "separate", label: "分开订" },
+                    ]}
+                  />
                 </Form.Item>
               </Col>
             </Row>

@@ -4,6 +4,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import PlanList from "./pages/PlanList";
 import PlanNew from "./pages/PlanNew";
+import PlanQA from "./pages/PlanQA";
 import PlanDetail from "./pages/PlanDetail";
 import ReviewBoard from "./pages/ReviewBoard";
 import MemoryGraph from "./pages/MemoryGraph";
@@ -24,6 +25,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/plans" element={<PlanList />} />
         <Route path="/plans/new" element={<PlanNew />} />
+        <Route path="/plans/qa" element={<PlanQA />} />
         <Route path="/plans/:id" element={<PlanDetail />} />
         <Route path="/reviews" element={<ReviewBoard />} />
         <Route path="/memory" element={<MemoryGraph />} />

@@ -8,6 +8,7 @@ import {
   DashboardOutlined,
   UnorderedListOutlined,
   PlusCircleOutlined,
+  CommentOutlined,
   ReadOutlined,
   ApartmentOutlined,
   GlobalOutlined,
@@ -42,6 +43,7 @@ export default function AppLayout() {
         children: [
           { key: "/plans", icon: <UnorderedListOutlined />, label: t("planList") },
           { key: "/plans/new", icon: <PlusCircleOutlined />, label: t("newPlan") },
+          { key: "/plans/qa", icon: <CommentOutlined />, label: t("qaPlan") },
         ],
       },
     ];
@@ -78,6 +80,7 @@ export default function AppLayout() {
   const selectedKey = useMemo(() => {
     const p = location.pathname;
     if (p.startsWith("/plans/new")) return "/plans/new";
+    if (p.startsWith("/plans/qa")) return "/plans/qa";
     if (p.startsWith("/plans/")) return "/plans";
     if (p.startsWith("/reviews")) return "/reviews";
     if (p.startsWith("/memory")) return "/memory";
