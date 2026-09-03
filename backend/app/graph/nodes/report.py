@@ -70,9 +70,27 @@ async def report_node(state: TravelState) -> dict:
         except Exception as exc:
             logger.warning("酒店房价生成失败：%s", exc)
 
+        # RAG 增强：基于检索到的知识库原文生成「目的地深度解读」（失败降级为空）
+        rag_insights: str | None = None
+        try:
+            prefs = plan.preferences or {}
+            party = prefs.get("party") or {}
+            kb_hits = (itinerary or {}).get("kb_hits") or []
+            _has_elder = int(prefs.get("elders") or party.get("elders") or 0) > 0
+            _has_child = int(prefs.get("children") or party.get("children") or 0) > 0
+            rag_insights = await _generate_rag_insights(
+                destination,
+                kb_hits,
+                prefs.get("tags") or [],
+                _has_elder,
+                _has_child,
+            )
+        except Exception as exc:
+            logger.warning("RAG 增强跳过：%s", exc)
+
         # 生成报告 markdown
         markdown = _build_report_markdown(
-            plan, budget_items, itinerary, degraded, weather_now_data, weather_forecast_data, hotels_data
+            plan, budget_items, itinerary, degraded, weather_now_data, weather_forecast_data, hotels_data, rag_insights
         )
 
         # 写 report.md
@@ -131,6 +149,66 @@ async def _load_itinerary(plan_id: str, ctx: NodeContext) -> dict | None:
     return None
 
 
+async def _generate_rag_insights(
+    destination: str,
+    kb_hits: list[dict],
+    tags: list[str],
+    has_elder: bool,
+    has_child: bool,
+) -> str | None:
+    """RAG 增强：让 LLM 基于检索到的知识库原文生成「目的地深度解读」。
+
+    这是 RAG 的「生成」环节——检索(Retrieval)到的 chunk 原文作为上下文，
+    喂给 LLM 生成面向具体人群的景点/美食/注意事项解读。
+    失败或非 real 模式返回 None（降级，不阻塞报告）。
+    """
+    from app.core.config import settings
+
+    if settings.llm_mode != "real" or not kb_hits:
+        return None
+
+    # 把检索到的原文拼成参考材料（限制条数/长度，避免 prompt 过长）
+    context_parts = []
+    for h in kb_hits[:6]:
+        ctx_txt = (h.get("chunk_text") or "").strip()
+        if ctx_txt:
+            context_parts.append(f"【{h.get('category','')}·{h.get('title','')}】{ctx_txt[:300]}")
+    if not context_parts:
+        return None
+    context = "\n\n".join(context_parts)
+
+    audience = []
+    if has_elder:
+        audience.append("老人")
+    if has_child:
+        audience.append("儿童")
+    audience_str = "、".join(audience) if audience else "普通游客"
+
+    prompt = (
+        f"目的地：{destination}\n"
+        f"同行人群：{audience_str}\n"
+        f"兴趣偏好：{'、'.join(tags) if tags else '无特别偏好'}\n\n"
+        f"以下是从文旅知识库检索到的参考资料：\n{context}\n\n"
+        "请基于上述资料，生成一段面向该人群的「目的地深度解读」，包含：\n"
+        "1) 目的地亮点（2-3 条）；2) 美食推荐（1-2 条）；3) 针对老人/儿童的注意事项（如有）。\n"
+        "要求：口语化、简洁、直接基于资料（不要编造资料里没有的景点或价格）；输出纯 Markdown，不要标题。"
+    )
+
+    try:
+        llm = get_llm()
+        result = await llm.complete(
+            [
+                {"role": "system", "content": build_system_prompt("report_rag", "你是文旅行程规划系统的目的地解读助手。")},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        text = (result.text or "").strip()
+        return text or None
+    except Exception as exc:
+        logger.warning("RAG 目的地解读生成失败：%s", exc)
+        return None
+
+
 async def _collect_hotel_names(plan_id: str, ctx: NodeContext) -> list[str]:
     """从 web_research 任务结果里收集真实酒店 POI 名（keyword=酒店）。"""
     from app.models import AgentTask as AT
@@ -184,6 +262,7 @@ def _build_report_markdown(
     weather_now: dict | None = None,
     weather_forecast: list[dict] | None = None,
     hotels: list[dict] | None = None,
+    rag_insights: str | None = None,
 ) -> str:
     """生成完整报告正文。"""
     prefs = plan.preferences or {}
@@ -466,6 +545,18 @@ def _build_report_markdown(
     lines.append("- 酒店房价为估算值（真实房价 API 未接入）。")
     lines.append("- 出行前请再次确认景点开放时间、天气与交通状况。")
     lines.append("")
+    sec += 1
+
+    # RAG 增强：目的地深度解读（LLM 基于知识库生成）
+    if rag_insights:
+        lines.append(f"## {_sec(sec)}、目的地深度解读（AI 生成）")
+        lines.append("")
+        lines.append(rag_insights)
+        lines.append("")
+        lines.append("> 本解读由 AI 基于文旅知识库检索生成，仅供参考。")
+        lines.append("")
+        sec += 1
+
     lines.append(f"---")
     lines.append(f"*生成时间：由系统自动生成*")
 
