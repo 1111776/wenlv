@@ -4,12 +4,9 @@ import {
   Card,
   Input,
   message,
-  Select,
   Space,
-  Tag,
   Typography,
   Alert,
-  InputNumber,
   Divider,
 } from "antd";
 import {
@@ -29,61 +26,81 @@ export default function PlanVoice() {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [createdId, setCreatedId] = useState<string | null>(null);
-  const [supported, setSupported] = useState<boolean | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const recRef = useRef<any>(null);
 
-  // 浏览器语音识别支持检测
-  const getRecognition = (): any | null => {
+  const startListening = () => {
+    setErrorMsg(null);
     const w: any = window as any;
     const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
-    if (!SR) return null;
+
+    // 1. 浏览器不支持
+    if (!SR) {
+      setErrorMsg(
+        "当前浏览器不支持语音识别（Web Speech API）。请改用 Chrome 或 Edge 浏览器打开本页面。"
+      );
+      return;
+    }
+
     const rec = new SR();
     rec.lang = "zh-CN";
     rec.continuous = true;
     rec.interimResults = true;
-    return rec;
-  };
 
-  const startListening = () => {
-    const rec = getRecognition();
-    if (!rec) {
-      setSupported(false);
-      message.error("当前浏览器不支持语音识别，请使用 Chrome 或 Edge");
-      return;
-    }
-    setSupported(true);
+    rec.onstart = () => {
+      setListening(true);
+      setErrorMsg(null);
+    };
+
     rec.onresult = (event: any) => {
       let finalText = "";
-      let interimText = "";
       for (let i = 0; i < event.results.length; i++) {
         if (event.results[i].isFinal) {
           finalText += event.results[i][0].transcript;
-        } else {
-          interimText += event.results[i][0].transcript;
         }
       }
-      // 追加最终结果到已有文本
       if (finalText) {
         setText((prev) => (prev ? prev + finalText : finalText));
       }
     };
+
     rec.onerror = (event: any) => {
-      if (event.error === "not-allowed") {
-        message.error("麦克风权限被拒绝，请在浏览器地址栏允许麦克风访问");
-      } else if (event.error !== "aborted") {
-        message.warning("识别出错：" + event.error);
-      }
       setListening(false);
+      switch (event.error) {
+        case "not-allowed":
+          setErrorMsg(
+            "麦克风权限被拒绝。请点击浏览器地址栏左侧的锁图标，允许麦克风访问后重试。"
+          );
+          break;
+        case "no-speech":
+          setErrorMsg("没有检测到语音，请离麦克风近一点再试。");
+          break;
+        case "audio-capture":
+          setErrorMsg("没有找到麦克风设备，请检查麦克风是否连接。");
+          break;
+        case "network":
+          setErrorMsg(
+            "语音识别网络连接失败。浏览器原生识别依赖 Google 语音服务，国内网络不稳定。建议换 Edge 浏览器重试，或改用「新建行程/问答式创建」手动输入。"
+          );
+          break;
+        case "service-not-allowed":
+          setErrorMsg("浏览器语音识别服务不可用（可能被浏览器禁用或网络受限）。");
+          break;
+        default:
+          setErrorMsg("识别出错：" + event.error);
+      }
     };
+
     rec.onend = () => {
       setListening(false);
     };
+
     recRef.current = rec;
     try {
       rec.start();
-      setListening(true);
-    } catch (e) {
+    } catch (e: any) {
       setListening(false);
+      setErrorMsg("无法启动语音识别：" + (e?.message || e));
     }
   };
 
@@ -102,7 +119,7 @@ export default function PlanVoice() {
 
   const onSubmit = async () => {
     if (!text.trim()) {
-      message.warning("请先说话或输入需求");
+      setErrorMsg("请先说话或输入需求");
       return;
     }
     setLoading(true);
@@ -115,7 +132,7 @@ export default function PlanVoice() {
       setCreatedId(data.plan_id);
       message.success("行程已提交，Agent 团队开始工作");
     } catch (e: any) {
-      message.error(e.message);
+      setErrorMsg(e.message);
     } finally {
       setLoading(false);
     }
@@ -162,8 +179,19 @@ export default function PlanVoice() {
           type="info"
           showIcon
           message="用嘴说需求，系统自动转成文字生成行程"
-          description="点击下方按钮开始说话（例如：去云南玩7天，2个大人1个小孩，预算15000，喜欢自然风光）。说完后确认文字再提交。推荐使用 Chrome / Edge 浏览器。"
+          description="点击下方按钮开始说话。注意：浏览器原生语音识别依赖 Google 服务，国内网络可能不稳定；如果转不出字，请换 Edge 浏览器，或改用「新建行程/问答式创建」手动输入。"
         />
+
+        {/* 错误提示（内联，不依赖可能失效的全局 message） */}
+        {errorMsg && (
+          <Alert
+            style={{ marginBottom: 16 }}
+            type="error"
+            showIcon
+            message="语音识别未成功"
+            description={errorMsg}
+          />
+        )}
 
         {/* 麦克风按钮 */}
         <div style={{ textAlign: "center", margin: "24px 0" }}>
@@ -188,11 +216,6 @@ export default function PlanVoice() {
             >
               点击开始说话
             </Button>
-          )}
-          {supported === false && (
-            <div style={{ marginTop: 12, color: "#f5222d" }}>
-              当前浏览器不支持语音识别，请改用 Chrome 或 Edge
-            </div>
           )}
         </div>
 
