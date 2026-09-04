@@ -451,7 +451,7 @@ export default function PlanDetail() {
               {
                 title: "结果",
                 dataIndex: "result",
-                width: 120,
+                width: 160,
                 render: (r: any) =>
                   r?.blocked ? (
                     <Tag color="error">拦截: {r.pattern || r.category}</Tag>
@@ -459,6 +459,8 @@ export default function PlanDetail() {
                     <Tag color={r.sentiment === "negative" ? "error" : r.sentiment === "positive" ? "success" : "default"}>
                       {r.sentiment}
                     </Tag>
+                  ) : r?.pois?.length ? (
+                    <Tag color="success">搜到 {r.pois.length} 个</Tag>
                   ) : (
                     "-"
                   ),
@@ -746,19 +748,38 @@ function StatusBoard({ agents }: { agents: any }) {
         </Row>
       </Card>
 
-      {/* 已调研的景点列表 */}
-      <Card title={`已调研的景点（${tasks.filter((t: any) => t.status === "completed").length} 个）`}>
+      {/* 已调研的景点/餐厅列表（真实 POI） */}
+      <Card title="调研结果（真实 POI）" style={{ marginBottom: 16 }}>
         {tasks.filter((t: any) => t.status === "completed").length === 0 ? (
           <Typography.Text type="secondary">暂无已完成的调研</Typography.Text>
         ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <div>
             {tasks
-              .filter((t: any) => t.status === "completed")
+              .filter((t: any) => t.status === "completed" && t.result?.pois?.length)
               .map((t: any) => (
-                <Tag key={t.page_no} color="blue" style={{ fontSize: 13, padding: "4px 10px" }}>
-                  {t.title}
-                </Tag>
+                <div key={t.page_no} style={{ marginBottom: 16 }}>
+                  <Typography.Text strong style={{ fontSize: 14 }}>
+                    {t.title}
+                  </Typography.Text>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                    {t.result.pois.map((p: any, i: number) => (
+                      <Tag
+                        key={i}
+                        color="blue"
+                        style={{ fontSize: 12, padding: "4px 10px" }}
+                      >
+                        {p.name}
+                        {p.rating ? ` ⭐${p.rating}` : ""}
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
               ))}
+            {tasks.filter((t: any) => t.status === "completed" && !t.result?.pois?.length).length > 0 && (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                （部分调研任务无 POI 结果，已跳过）
+              </Typography.Text>
+            )}
           </div>
         )}
       </Card>
