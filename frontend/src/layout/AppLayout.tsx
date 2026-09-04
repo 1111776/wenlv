@@ -9,6 +9,7 @@ import {
   UnorderedListOutlined,
   PlusCircleOutlined,
   CommentOutlined,
+  AudioOutlined,
   ReadOutlined,
   ApartmentOutlined,
   GlobalOutlined,
@@ -44,6 +45,7 @@ export default function AppLayout() {
           { key: "/plans", icon: <UnorderedListOutlined />, label: t("planList") },
           { key: "/plans/new", icon: <PlusCircleOutlined />, label: t("newPlan") },
           { key: "/plans/qa", icon: <CommentOutlined />, label: t("qaPlan") },
+          { key: "/plans/voice", icon: <AudioOutlined />, label: t("voicePlan") },
         ],
       },
     ];
@@ -81,6 +83,7 @@ export default function AppLayout() {
     const p = location.pathname;
     if (p.startsWith("/plans/new")) return "/plans/new";
     if (p.startsWith("/plans/qa")) return "/plans/qa";
+    if (p.startsWith("/plans/voice")) return "/plans/voice";
     if (p.startsWith("/plans/")) return "/plans";
     if (p.startsWith("/reviews")) return "/reviews";
     if (p.startsWith("/memory")) return "/memory";
