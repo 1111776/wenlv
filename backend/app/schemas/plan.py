@@ -64,6 +64,22 @@ class PlanCreateOut(BaseModel):
     status: str
 
 
+class PlanChatRequest(BaseModel):
+    """对话式创建行程请求。"""
+
+    message: str = Field(..., min_length=1)  # 用户本轮输入
+    history: list[dict] = Field(default_factory=list)  # 之前的对话 [{role, content}]
+    extracted: dict = Field(default_factory=dict)  # 已累积提取的字段
+
+
+class PlanChatOut(BaseModel):
+    """对话式创建行程响应。"""
+
+    reply: str  # AI 回复
+    extracted: dict  # 累积提取的字段（origin/destination/days/budget_limit/adults/children/elders/tags）
+    ready: bool  # 是否已可生成行程
+
+
 class ItineraryUpdateRequest(BaseModel):
     """手动修改行程规划（增删景点/餐饮，不重新生成）。
 

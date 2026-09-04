@@ -22,6 +22,7 @@ from app.models.travel_plan import PLAN_STATUS, TERMINAL_STATUSES
 from app.schemas.common import ok
 from app.schemas.plan import (
     ItineraryUpdateRequest,
+    PlanChatRequest,
     PlanCreateRequest,
     PlanDetailOut,
     PlanFileOut,
@@ -499,3 +500,88 @@ def _check_visibility(plan: TravelPlan, user: dict) -> None:
     """顾问/游客只能看自己的行程；supervisor 可看全部。"""
     if user["role"] in ("advisor", "tourist") and plan.user_id != user["id"]:
         raise Err.FORBIDDEN.to_http()
+
+
+@router.post("/chat")
+async def plan_chat(body: PlanChatRequest, request: Request):
+    """对话式创建行程：AI 主动引导提问，逐步收集字段，集齐后 ready=true。
+
+    复用 Intake 的正则解析能力提取结构化字段，LLM 负责对话引导。
+    """
+    from app.agents.llm import build_system_prompt, get_llm
+
+    extracted = dict(body.extracted or {})
+
+    # 1. 用正则从用户输入提取结构化字段（复用 intake 的 _fallback_parse 逻辑）
+    try:
+        from app.graph.nodes.intake import _fallback_parse
+
+        parsed = _fallback_parse(body.message)
+        for k, v in parsed.items():
+            if k == "party" and isinstance(v, dict):
+                for pk in ("adults", "children", "elders"):
+                    if v.get(pk) is not None:
+                        extracted[pk] = v[pk]
+            elif k in ("origin", "destination", "days", "budget_limit"):
+                if v is not None:
+                    extracted[k] = v
+            elif k == "tags" and v:
+                merged_tags = list(extracted.get("tags") or []) + v
+                extracted["tags"] = list(dict.fromkeys(merged_tags))
+    except Exception:
+        pass
+
+    # 2. 判断是否已集齐核心字段
+    required = ["destination", "days", "adults"]
+    missing = [r for r in required if not extracted.get(r)]
+
+    # 3. 让 LLM 生成引导性回复
+    field_hint = {
+        "destination": "目的地（想去哪里）",
+        "days": "行程天数",
+        "adults": "出行成人数",
+    }
+    next_q = field_hint[missing[0]] if missing else None
+
+    llm = get_llm()
+    from app.core.config import settings
+
+    if missing:
+        prompt = (
+            "你是文旅行程规划助手的对话引导员，用亲切口语和用户聊，收集旅行需求。\n"
+            f"目前已收集到：{extracted or '还没有'}。\n"
+            f"还缺：{'、'.join(missing)}。\n"
+            f"请针对「{next_q}」提问，同时可以顺便问预算、兴趣偏好、是否有老人儿童。"
+            "回复要简短友好（1-2 句话），像真人对话，不要列出字段清单。"
+        )
+        try:
+            result = await llm.complete([
+                {"role": "system", "content": build_system_prompt("plan_chat", prompt)},
+                {"role": "user", "content": body.message},
+            ])
+            reply = (result.text or "").strip() or f"好的！那你们想去哪里玩呢？"
+        except Exception:
+            reply = f"好的！请问你们想去的{next_q}是？"
+        return ok({"reply": reply, "extracted": extracted, "ready": False})
+
+    # 集齐了：汇总确认
+    try:
+        summary = (
+            f"目的地：{extracted.get('destination')}，天数：{extracted.get('days')}天，"
+            f"成人：{extracted.get('adults')}人"
+        )
+        if extracted.get("origin"):
+            summary += f"，出发地：{extracted['origin']}"
+        if extracted.get("budget_limit"):
+            summary += f"，预算：{extracted['budget_limit']}元"
+        if extracted.get("children"):
+            summary += f"，儿童：{extracted['children']}人"
+        if extracted.get("elders"):
+            summary += f"，老人：{extracted['elders']}人"
+        if extracted.get("tags"):
+            summary += f"，兴趣：{'、'.join(extracted['tags'])}"
+        reply = f"信息收集齐啦！我帮你确认一下：{summary}。确认无误的话我就开始生成行程啦～"
+    except Exception:
+        reply = "信息已收集齐全，可以开始生成行程了。"
+
+    return ok({"reply": reply, "extracted": extracted, "ready": True})
