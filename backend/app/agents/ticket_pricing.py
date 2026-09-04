@@ -259,6 +259,10 @@ def transport_ticket_prices(
             continue
         age = int(c.get("age") or 0)
         seat = bool(c.get("seat"))
+        try:
+            height = float(c.get("height")) if c.get("height") not in (None, "", 0) else 0.0
+        except (ValueError, TypeError):
+            height = 0.0
         if is_air:
             if age < 2:
                 price = int(round(adult_unit * 0.10))
@@ -270,7 +274,9 @@ def transport_ticket_prices(
                 price = adult_unit
                 tag = "成人票"
         elif is_rail:
-            if age < 6:
+            # 高铁免票：6周岁以下 或 身高1.2米以下（二选一满足，且不占座）→ 免票
+            is_free = age < 6 or (0 < height <= 1.2)
+            if is_free:
                 if not seat and free_carry_left > 0:
                     price = 0
                     free_carry_left -= 1
@@ -286,7 +292,7 @@ def transport_ticket_prices(
                 tag = "成人票"
         else:
             # 大巴/自驾等：按原折扣兜底
-            if age < 6:
+            if age < 6 or (0 < height <= 1.2):
                 price = 0
                 tag = "免票"
             elif age < 14:
