@@ -43,7 +43,7 @@ timeout /t 15 /nobreak >nul
 
 echo.
 echo  [3/3] ´ò¿ªä¯ÀÀÆ÷...
-start "" http://localhost:8080
+start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" http://localhost:8080
 
 echo.
 echo  ============================================
