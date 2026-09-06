@@ -24,15 +24,7 @@ def _build_reason_and_detail(state: TravelState) -> tuple[str, dict]:
     """根据风险类型确定挂起原因与证据。"""
     from app.core.config import settings
 
-    total_budget = state.get("total_budget", 0.0)
-    # 预算金额超阈值（默认 30000）
-    if total_budget > settings.budget_review_threshold:
-        return "budget_over", {
-            "total_budget": total_budget,
-            "threshold": settings.budget_review_threshold,
-            "说明": f"预算 {total_budget} 元超过审核阈值 {settings.budget_review_threshold} 元",
-        }
-    # 超预算比例（默认 20%）——与 route_after_budget 口径一致
+    # 超预算比例（默认 45%）——与 route_after_budget 口径一致
     if state.get("over_budget_ratio", 0) > settings.budget_over_ratio:
         return "budget_over", {
             "over_budget_ratio": state.get("over_budget_ratio"),
