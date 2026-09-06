@@ -34,7 +34,7 @@ SLIDE_W = Inches(13.333)  # 16:9
 SLIDE_H = Inches(7.5)
 FONT = "微软雅黑"
 
-TOTAL = 19
+TOTAL = 21
 
 
 def new_prs():
@@ -124,7 +124,7 @@ def cover(prs, img_path):
     add_text(slide, Inches(1.0), Inches(2.0), Inches(11.3), Inches(1.2), "山海行 · 文旅多 Agent 行程规划系统", size=42, color=WHITE, bold=True)
     add_text(slide, Inches(1.0), Inches(3.3), Inches(11.3), Inches(0.8), "基于 8 个 AI Agent 协作的文旅资源调研与个性化行程规划", size=20, color=RGBColor(0xD0, 0xE4, 0xFF))
     add_text(slide, Inches(1.0), Inches(4.25), Inches(11.3), Inches(0.6), "真实数据 · 断点续传 · 图记忆 · 运行态强干预 · HITL 人工审核 · 人群适配 · RAG 检索增强", size=15, color=RGBColor(0xB0, 0xD0, 0xF0))
-    add_text(slide, Inches(1.0), Inches(6.3), Inches(11.3), Inches(0.5), "版本 v3.1 · 2026-09-03 · 1 人独立完成", size=13, color=RGBColor(0x90, 0xB0, 0xD0))
+    add_text(slide, Inches(1.0), Inches(6.3), Inches(11.3), Inches(0.5), "版本 v3.2 · 2026-09-05 · 1 人独立完成", size=13, color=RGBColor(0x90, 0xB0, 0xD0))
 
 
 def toc(prs):
@@ -234,16 +234,20 @@ def main():
         ("性能红线", "QPS≥200 / P95<300ms / 错误率<0.1% / 检索<150ms / 干预成功率=100%。"),
     ], 5)
 
-    # 四、技术难点
-    bullets_slide(prs, "四、技术难点（7 个）", [
-        ("断点续传正确性", "原子写入(temp+fsync+replace)+checksum 校验+快照回退+幂等恢复，保证任何时刻崩溃不丢进度、不重复执行。"),
-        ("异步队列崩溃接管", "Redis Streams consumer group + PEL + XAUTOCLAIM，崩溃 worker 的未确认消息自动转给存活 worker。"),
-        ("审核并发防重", "Lua CAS 抢占 + DB 条件更新兜底 + 会话租约锁，锁降冲突、DB 条件更新保正确。"),
-        ("写入-入队竞态", "先 commit 再入队，否则 Worker 抢跑报「行程不存在」—— 容器化多进程才暴露的坑。"),
-        ("图记忆抽取检索", "真实 LLM 抽取任意过敏原（不限白名单）+ 向量/图双路检索 + 缓存。"),
-        ("强干预安全原子性", "HMAC 验签 + nonce 防重放 + SETNX 锁 + 三写一事务。"),
-        ("真实数据接入的坑", "高德 key 未拼参数/百炼 json_object 需含 json 字/nginx 缓存旧 IP 致 502，均被真实部署暴露并修复。"),
+    # 四、技术难点（上：前4个）
+    bullets_slide(prs, "四、技术难点（1/2）", [
+        ("断点续传正确性", "难点：进程随时可能崩溃(kill -9)，怎么保证不丢进度、不重复执行？解法：原子写入(temp→fsync→os.replace→目录fsync)保证任何时刻文件要么旧版要么新版，绝不半份；checksum 校验失败回退快照；已落库任务幂等不重跑。"),
+        ("异步队列崩溃接管", "难点：Worker 崩了正在处理的消息怎么办？解法：Redis Streams consumer group + PEL(未确认消息清单) + XAUTOCLAIM(自动认领)，崩溃 worker 的未确认消息自动转给存活 worker。"),
+        ("审核并发防重", "难点：两个主管同时审批同一行程，怎么防重复？解法：Lua CAS 抢占(状态原子转换) + DB 条件更新兜底 + 会话租约锁(带 token 防误删)，锁降冲突、DB 兜底保正确。"),
+        ("写入-入队竞态", "难点：API 写入行程后立即入队，Worker 抢在 DB commit 前消费，报「行程不存在」。解法：入队前显式 await db.commit()。本地单进程永远发现不了，只有容器化多进程才暴露。"),
     ], 6)
+
+    # 四、技术难点（下：后3个）
+    bullets_slide(prs, "四、技术难点（2/2）", [
+        ("图记忆抽取检索", "难点：怎么把「我香菜过敏」抽成结构化三元组并跨行程召回？解法：真实 LLM 抽取(不限过敏原白名单) + 三元组 upsert + 向量/图双路检索 + Redis 缓存(0.3ms)。"),
+        ("强干预安全原子性", "难点：主管改运行中状态，既不越权又不并发错乱？解法：HMAC 验签 + nonce 防重放 + SETNX 排他锁 + 三写一事务 + 节点入口应用补丁，干预成功率 100%。"),
+        ("真实数据接入的坑", "难点：第三方 API 各种坑(key 类型/参数格式/限流/编码)。解法(实践踩坑)：高德 key 需拼参数、百炼 json_object 需含 json 字、nginx 缓存旧 IP 致 502 需 DNS 动态解析、百炼 embedding batch 上限是 10 不是 16。"),
+    ], 7)
 
     # 五、项目亮点
     bullets_slide(prs, "五、项目亮点", [
@@ -255,7 +259,7 @@ def main():
         ("工单7全量落地", "图记忆+强干预，数据模型/引擎/API/前端/测试/文档完整闭环。"),
         ("多角色+多语言+可编辑", "游客/顾问/主管三角色 RBAC + 11国语言切换 + 手动编辑/删除行程。"),
         ("精致前端视觉", "真实风景壁纸 + 状态看板友好化(进度条+步骤卡片) + 品牌名山海行。"),
-    ], 7)
+    ], 8)
 
     # 六、系统架构
     bullets_slide(prs, "六、系统架构（6 层）", [
@@ -265,19 +269,23 @@ def main():
         ("Agent 编排层", "LangGraph StateGraph + 8 节点 DAG + 条件边 + 记忆抽取 + 干预补丁读取。"),
         ("数据层", "PostgreSQL(pgvector,11表权威) + Redis(Streams/锁/缓存) + 文件(断点恢复源) + 知识库向量。"),
         ("外部数据源", "高德地图(地理编码/POI/路径/天气/图片) + 百炼 LLM(qwen3.7-flash) + Embedding(text-embedding-v3)。"),
-    ], 8)
-
-    # 七、8个Agent详解
-    bullets_slide(prs, "七、8 个 Agent 详解", [
-        ("① Intake 偏好解析", "输入需求→结构化偏好(目的地/天数/预算/成人关系/老人年龄性别明细/兴趣)，真实 LLM 解析 + 记忆抽取。"),
-        ("② Planner 任务拆解", "CoT 拆解调研任务(景点/公园/博物馆/酒店/餐厅/早餐/快餐/购物/交通)，真实 LLM。"),
-        ("③ Web Research 调研", "逐项调高德 POI 搜索真实景点/酒店/餐厅，ReAct + 安全过滤 + 断点。"),
-        ("④ Sentiment 舆情评估", "对真实 POI 做风险识别，规则引擎打分。"),
-        ("⑤ Itinerary 日程编排", "按天编排 + 高德路径规划 + 三餐餐饮(早餐不吃正餐) + 人群过滤/兴趣排序 + 读取干预补丁。"),
-        ("⑥ Budget 预算计算", "分项汇总 + 老人按年龄分档门票 + 虚拟房价，判断超预算。"),
-        ("⑦ Human Review 审核", "风险场景挂起路由人工审批，不调 LLM。"),
-        ("⑧ Report 报告生成", "汇总生成报告(天气+路线+行程+餐饮+酒店+预算)。"),
     ], 9)
+
+    # 七、8个Agent详解（上：前4个）
+    bullets_slide(prs, "七、8 个 Agent 详解（1/2）", [
+        ("① Intake 偏好解析", "输入：用户需求(表单/语音/对话)。输出：结构化偏好(目的地/天数/预算/出行人明细/兴趣/成人关系)。技术：真实 LLM + JSON Schema 结构化输出，失败降级正则。附带记忆抽取沉淀过敏/偏好。"),
+        ("② Planner 任务拆解", "输入：偏好。输出：≥10 条调研任务(景点/公园/博物馆/酒店/餐厅/早餐/快餐/购物/交通)。技术：CoT 思维链拆解，内置调研维度降级，幂等(已拆过不重复)。"),
+        ("③ Web Research 调研", "输入：任务列表。输出：高德真实 POI(名称/地址/评分/营业时间/图片) + 知识库检索结果。技术：ReAct 逐项调研 + 安全过滤 + 断点续传 + RAG 检索注入。"),
+        ("④ Sentiment 舆情评估", "输入：真实 POI 列表。输出：风险标签(差评/强制购物/夜行等)。技术：规则引擎关键词打分，识别严重负面舆情供 HITL 触发。"),
+    ], 10)
+
+    # 七、8个Agent详解（下：后4个）
+    bullets_slide(prs, "七、8 个 Agent 详解（2/2）", [
+        ("⑤ Itinerary 日程编排", "输入：POI + 偏好 + 出发地。输出：每日行程(上午/下午/晚上 + 三餐) + 往返交通 + 路线。技术：高德路径规划 + 人群过滤 + 门票分档 + 兴趣排序 + 读取干预补丁。"),
+        ("⑥ Budget 预算计算", "输入：行程 + 天数。输出：分项预算(交通/住宿/门票/餐饮/其他) + 超支比例。技术：老人/儿童按年龄分档门票 + 虚拟房价，超预算 45% 触发审核。"),
+        ("⑦ Human Review 审核", "输入：风险上下文(超预算/夜行/舆情)。输出：挂起人工审批。技术：不调 LLM，只做路由；主管抢占(Lua CAS)→通过续跑/驳回终止；审批超时 24h 自动驳回。"),
+        ("⑧ Report 报告生成", "输入：全部前序输出。输出：完整报告(概览/天气/交通/每日行程/餐饮/酒店/预算/数据来源)。技术：Markdown 渲染 + RAG 生成「目的地深度解读」+ 真实完成时间。"),
+    ], 11)
 
     # 八、核心技术实现
     bullets_slide(prs, "八、核心技术实现", [
@@ -288,7 +296,7 @@ def main():
         ("强干预", "HMAC验签→nonce防重放→SETNX锁→三写一事务→节点入口应用补丁，干预成功率100%。"),
         ("城市规范化", "高德 geocode 把「河北沧州」规范为「沧州」，修复 POI 搜索误搜到省一级。"),
         ("安全", "JWT+RBAC(游客/顾问/主管) + 注入检测 + 内容过滤 + 工具白名单。"),
-    ], 10)
+    ], 12)
 
     # 九、数据源与数据模型
     bullets_slide(prs, "九、数据源与数据模型", [
@@ -300,7 +308,7 @@ def main():
         ("业务表(6张)", "users / travel_plans / agent_tasks / review_records / budget_records / audit_logs。"),
         ("图记忆表(4张)", "graph_nodes / graph_edges / memory_events / interventions。"),
         ("知识库表(1张)", "document_chunks（6类语料，38 chunk，Vector 768）。"),
-    ], 11)
+    ], 13)
 
     # 十、API与前端
     bullets_slide(prs, "十、API 与前端", [
@@ -310,7 +318,7 @@ def main():
         ("行程详情亮点", "出发地交通方式+票价 + 调研结果(真实POI) + 景点图片(可放大) + 三餐餐饮 + 门票按年龄分档 + 优待备注 + 编辑行程。"),
         ("创建表单亮点", "成人关系 + 老人信息(年龄+性别+状态) + 儿童信息(年龄+身高+占座) + 学生学历 + 购票/酒店方式。"),
         ("多种创建方式", "语音创建(浏览器原生语音识别) + 对话式创建(AI 主动引导，像 DeepSeek 一样聊天)。"),
-    ], 12)
+    ], 14)
 
     # 十一、部署与启动
     bullets_slide(prs, "十一、部署与启动", [
@@ -320,7 +328,7 @@ def main():
         ("演示账号", "advisor_demo(顾问) / supervisor_demo(主管)，密码 wenlv123；注册可自选游客/顾问身份。"),
         ("多国语言", "左下角切换 11 种语言（中/英/日/韩/法/德/西/俄/葡/意/阿）。"),
         ("nginx 根治", "Docker DNS 动态解析，api 容器重建不 502。"),
-    ], 13)
+    ], 15)
 
     # 十二、完整流程演示
     bullets_slide(prs, "十二、完整流程演示（5 场景）", [
@@ -331,7 +339,7 @@ def main():
         ("场景E 图记忆+干预", "行程1说「海鲜过敏」→ 行程2自动避开；主管干预「台风停运」→ 运行中自动剔除。"),
         ("场景F 人群适配", "带65岁老人+5岁儿童 → 老人门票免首道、儿童免票；剔除滑雪/酒吧；早餐吃地方特色早餐。"),
         ("场景G RAG增强", "检索知识库(门票政策+云南美食) → 报告生成「目的地深度解读」，有据可查、带人群感知。"),
-    ], 14)
+    ], 16)
 
     # 十三、测试与验收
     bullets_slide(prs, "十三、测试与验收", [
@@ -341,7 +349,7 @@ def main():
         ("联调脚本", "e2e_check / recovery_test / simulate_conversation(15轮) / concurrent(50并发) / verify_retrieve_latency。"),
         ("竞态审计", "50 并发干预零丢失更新(Lost Update=0)，版本链完整可回放。"),
         ("RAG 检索验证", "老人门票政策 0.83 / 早餐吃什么 0.69 / 儿童高铁买票 0.83 / 海鲜过敏 0.67。"),
-    ], 15)
+    ], 17)
 
     # 十四、设计决策
     bullets_slide(prs, "十四、设计决策（关键取舍）", [
@@ -352,7 +360,7 @@ def main():
         ("Embedding", "百炼 text-embedding-v3（768 维，复用现有 key，OpenAI 兼容）。"),
         ("记忆引擎", "自研轻量 Mem0 风格（3人日不允许消化外部框架黑盒）。"),
         ("强干预", "HMAC + nonce + 三写事务（工单红线：安全验签）。"),
-    ], 16)
+    ], 18)
 
     # 十五、个性化人群适配
     bullets_slide(prs, "十五、个性化人群适配", [
@@ -362,7 +370,7 @@ def main():
         ("人群信息表单", "成人关系 + 老人(年龄+性别+状态) + 儿童(年龄+身高+占座) + 学生(学历) + 购票/酒店方式。"),
         ("人群过滤+兴趣", "有老人剔除滑雪/登山/雪山；有儿童剔除酒吧/夜店；兴趣标签+亲子/老人友好加权排序。"),
         ("餐饮三餐规范", "早餐只吃早餐类(不吃火锅/烤鸭)；早餐/快餐专门调研；三餐跨天不重复。"),
-    ], 17)
+    ], 19)
 
     # 十六、RAG 检索增强生成
     bullets_slide(prs, "十六、RAG 检索增强生成", [
@@ -372,7 +380,7 @@ def main():
         ("检索(R)", "search_kb() 用 pgvector 余弦距离召回 top-k 原文 chunk；web_research + itinerary 两节点注入。"),
         ("生成(G)", "report 节点 _generate_rag_insights() 让 LLM 基于原文生成「目的地深度解读」，有据可查、带人群感知。"),
         ("降级安全", "非 real 模式或检索为空或 LLM 失败时返回 None，报告照常出（只少一节），不阻塞主流程。"),
-    ], 18)
+    ], 20)
 
     # 十七、总结
     slide = blank(prs)
@@ -394,7 +402,7 @@ def main():
         add_rect(slide, Inches(0.9), ct, Inches(0.08), Inches(0.6), PRIMARY)
         add_text(slide, Inches(1.2), ct + Inches(0.06), Inches(2.0), Inches(0.5), t, size=13, color=PRIMARY_DARK, bold=True)
         add_text(slide, Inches(3.2), ct + Inches(0.06), Inches(9.0), Inches(0.5), c, size=11, color=DARK)
-    footer(slide, 19)
+    footer(slide, 21)
 
     prs.save(out)
     print(f"PPT 已生成：{out}")
