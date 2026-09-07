@@ -365,6 +365,11 @@ async def get_agents(plan_id: uuid.UUID, request: Request, db: AsyncSession = De
     itinerary_task = next((t for t in tasks if t.agent_type == "itinerary"), None)
     itinerary = itinerary_task.result if itinerary_task and itinerary_task.result else None
 
+    # RAG 相关：检索命中的知识库 chunk（itinerary.kb_hits）+ AI 解读（report.rag_insights）
+    kb_hits = (itinerary or {}).get("kb_hits") or []
+    report_task = next((t for t in tasks if t.agent_type == "report"), None)
+    rag_insights = (report_task.result or {}).get("rag_insights") if report_task and report_task.result else None
+
     return ok(
         {
             "plan_id": str(plan.id),
@@ -373,6 +378,8 @@ async def get_agents(plan_id: uuid.UUID, request: Request, db: AsyncSession = De
             "agents": agents,
             "tasks": web_tasks,
             "itinerary": itinerary,
+            "kb_hits": kb_hits,
+            "rag_insights": rag_insights,
             "preferences": plan.preferences,
             "budget_limit": float(plan.budget_limit) if plan.budget_limit else None,
             "total_budget": float(plan.total_budget) if plan.total_budget else None,

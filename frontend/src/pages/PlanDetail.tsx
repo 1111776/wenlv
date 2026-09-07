@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
+  Alert,
   Button,
   Card,
   Col,
@@ -483,6 +484,71 @@ export default function PlanDetail() {
         <Typography.Text type="secondary">
           {agents.status === "completed" ? "报告生成中或已驳回" : "报告将在行程完成后生成"}
         </Typography.Text>
+      ),
+    },
+    {
+      key: "kb",
+      label: "📚 知识库检索",
+      children: (
+        <div>
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="RAG 检索增强生成"
+            description="下方展示本次行程从文旅知识库检索到的内容（混合检索 + 语义向量），以及 AI 基于这些资料生成的目的地解读（带引用溯源）。"
+          />
+          {/* AI 目的地解读 */}
+          <Card title="🤖 AI 目的地解读（带引用溯源）" style={{ marginBottom: 16 }}>
+            {agents.rag_insights ? (
+              <Markdown content={agents.rag_insights} />
+            ) : (
+              <Typography.Text type="secondary">
+                {agents.status === "completed"
+                  ? "本次未生成 AI 解读（可能为 mock 模式或检索为空）"
+                  : "AI 解读将在行程完成后生成"}
+              </Typography.Text>
+            )}
+          </Card>
+          {/* 检索命中的知识库条目 */}
+          <Card title={`检索命中的知识库条目（${(agents.kb_hits || []).length} 条）`}>
+            {(agents.kb_hits || []).length === 0 ? (
+              <Typography.Text type="secondary">暂无检索结果</Typography.Text>
+            ) : (
+              <div>
+                {agents.kb_hits.map((h: any, i: number) => (
+                  <div
+                    key={i}
+                    style={{
+                      padding: "10px 14px",
+                      marginBottom: 8,
+                      background: "#f7fafc",
+                      borderRadius: 8,
+                      border: "1px solid #e5eaf0",
+                    }}
+                  >
+                    <Space style={{ marginBottom: 4 }} wrap>
+                      <Tag color="blue">{h.category || "未分类"}</Tag>
+                      <Typography.Text strong>{h.title}</Typography.Text>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        相似度 {(h.score * 100).toFixed(1)}%
+                      </Typography.Text>
+                      {h.retrieval && (
+                        <Tag color={h.retrieval === "bm25" ? "green" : "purple"} style={{ fontSize: 11 }}>
+                          {h.retrieval}
+                        </Tag>
+                      )}
+                    </Space>
+                    <Typography.Text style={{ fontSize: 13, color: "#595959" }}>
+                      {h.chunk_text?.slice(0, 120)}
+                      {(h.chunk_text?.length || 0) > 120 ? "…" : ""}
+                    </Typography.Text>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
       ),
     },
     {

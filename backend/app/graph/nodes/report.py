@@ -116,7 +116,10 @@ async def report_node(state: TravelState) -> dict:
                 order_index=200,
                 status=TASK_STATUS["COMPLETED"],
                 task_data={"title": "报告生成"},
-                result={"quality": "degraded" if degraded else "ok"},
+                result={
+                    "quality": "degraded" if degraded else "ok",
+                    "rag_insights": rag_insights,  # AI 目的地解读（带引用溯源）
+                },
             )
         )
         # 记录真实完成时间
