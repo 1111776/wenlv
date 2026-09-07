@@ -34,7 +34,7 @@ SLIDE_W = Inches(13.333)  # 16:9
 SLIDE_H = Inches(7.5)
 FONT = "微软雅黑"
 
-TOTAL = 21
+TOTAL = 22
 
 
 def new_prs():
@@ -124,7 +124,7 @@ def cover(prs, img_path):
     add_text(slide, Inches(1.0), Inches(2.0), Inches(11.3), Inches(1.2), "山海行 · 文旅多 Agent 行程规划系统", size=42, color=WHITE, bold=True)
     add_text(slide, Inches(1.0), Inches(3.3), Inches(11.3), Inches(0.8), "基于 8 个 AI Agent 协作的文旅资源调研与个性化行程规划", size=20, color=RGBColor(0xD0, 0xE4, 0xFF))
     add_text(slide, Inches(1.0), Inches(4.25), Inches(11.3), Inches(0.6), "真实数据 · 断点续传 · 图记忆 · 运行态强干预 · HITL 人工审核 · 人群适配 · RAG 检索增强", size=15, color=RGBColor(0xB0, 0xD0, 0xF0))
-    add_text(slide, Inches(1.0), Inches(6.3), Inches(11.3), Inches(0.5), "版本 v3.2 · 2026-09-05 · 1 人独立完成", size=13, color=RGBColor(0x90, 0xB0, 0xD0))
+    add_text(slide, Inches(1.0), Inches(6.3), Inches(11.3), Inches(0.5), "版本 v4.0 · 2026-09-05 · 1 人独立完成", size=13, color=RGBColor(0x90, 0xB0, 0xD0))
 
 
 def toc(prs):
@@ -307,17 +307,17 @@ def main():
         ("虚拟门票/人均", "景点门票按年龄分档（老人60-64半价/65+免首道、儿童6岁以下免/6-18半价）+ 餐厅人均参考价。"),
         ("业务表(6张)", "users / travel_plans / agent_tasks / review_records / budget_records / audit_logs。"),
         ("图记忆表(4张)", "graph_nodes / graph_edges / memory_events / interventions。"),
-        ("知识库表(1张)", "document_chunks（6类语料，38 chunk，Vector 768）。"),
+        ("知识库表(1张)", "document_chunks（10篇语料，61 chunk，Vector 768，含景点/美食/政策/季节/交通/住宿/注意事项）。"),
     ], 13)
 
     # 十、API与前端
     bullets_slide(prs, "十、API 与前端", [
         ("API(5组20+接口)", "认证(register含角色/login) / 行程(create/list/detail/status/agents/plan-file/report/cancel/delete/PATCH itinerary) / 审核 / 记忆(工单7) / 运维。"),
         ("记忆接口(工单7)", "intervene(强干预) / rollback(回滚) / graph(子图) / search(检索) / interventions(历史)。"),
-        ("前端 8 页面", "登录注册 / 工作台 / 行程列表 / 行程详情 / 审核台 / 记忆图谱 / 语音创建 / 对话式创建。"),
-        ("行程详情亮点", "出发地交通方式+票价 + 调研结果(真实POI) + 景点图片(可放大) + 三餐餐饮 + 门票按年龄分档 + 优待备注 + 编辑行程。"),
+        ("前端 10 页面", "登录注册 / 工作台 / 行程列表 / 行程详情 / 审核台 / 记忆图谱 / 系统说明 / 语音创建 / 对话式创建。"),
+        ("行程详情亮点", "出发地交通+票价 + 行程总览地图(高德，景点标记+按天分组+路线连线+切换) + 知识库检索(RAG) + 调研结果(真实POI) + 三餐餐饮 + 门票按年龄分档 + 优待备注 + 编辑行程。"),
         ("创建表单亮点", "成人关系 + 老人信息(年龄+性别+状态) + 儿童信息(年龄+身高+占座) + 学生学历 + 购票/酒店方式。"),
-        ("多种创建方式", "语音创建(浏览器原生语音识别) + 对话式创建(AI 主动引导，像 DeepSeek 一样聊天)。"),
+        ("三种创建方式", "新建表单 + 语音创建(浏览器语音识别) + 对话式创建(AI 主动引导，像 DeepSeek 一样聊天)。"),
     ], 14)
 
     # 十一、部署与启动
@@ -348,7 +348,7 @@ def main():
         ("单元测试", "8 个用例全绿(test_memory_intervention.py：三元组抽取/验签/embedding)。"),
         ("联调脚本", "e2e_check / recovery_test / simulate_conversation(15轮) / concurrent(50并发) / verify_retrieve_latency。"),
         ("竞态审计", "50 并发干预零丢失更新(Lost Update=0)，版本链完整可回放。"),
-        ("RAG 检索验证", "老人门票政策 0.83 / 早餐吃什么 0.69 / 儿童高铁买票 0.83 / 海鲜过敏 0.67。"),
+        ("RAG 检索评估", "eval_retrieval.py 跑 20 条测试集：Hit@5=95%、MRR=0.792（系统化评估，非口头宣称）。"),
     ], 17)
 
     # 十四、设计决策
@@ -372,15 +372,22 @@ def main():
         ("餐饮三餐规范", "早餐只吃早餐类(不吃火锅/烤鸭)；早餐/快餐专门调研；三餐跨天不重复。"),
     ], 19)
 
-    # 十六、RAG 检索增强生成
-    bullets_slide(prs, "十六、RAG 检索增强生成", [
-        ("技术底座", "pgvector(PostgreSQL扩展) + 百炼 text-embedding-v3(768维) + OpenAI 兼容 /embeddings，batch=10 规避单次上限。"),
-        ("场景A 个人记忆", "图记忆 embedding 从 JSONB 换 Vector(768)，MD5哈希假向量换真语义向量，「海鲜过敏」能召回「对虾过敏」。"),
-        ("场景B 文旅知识库", "document_chunks 表存 6 类语料(景点攻略/地方美食/景区政策/四季玩法/交通贴士/住宿贴士)，38 个分块。"),
-        ("检索(R)", "search_kb() 用 pgvector 余弦距离召回 top-k 原文 chunk；web_research + itinerary 两节点注入。"),
-        ("生成(G)", "report 节点 _generate_rag_insights() 让 LLM 基于原文生成「目的地深度解读」，有据可查、带人群感知。"),
-        ("降级安全", "非 real 模式或检索为空或 LLM 失败时返回 None，报告照常出（只少一节），不阻塞主流程。"),
+    # 十六、RAG 检索增强生成（上：技术底座+混合检索）
+    bullets_slide(prs, "十六、RAG 检索增强生成（1/2）", [
+        ("技术底座", "pgvector(PostgreSQL扩展) + 百炼 text-embedding-v3(768维) + OpenAI 兼容 /embeddings，batch=10 规避单次上限。图记忆 embedding 从 JSONB 换 Vector(768)，MD5哈希假向量换真语义向量。"),
+        ("混合检索(R)", "双路召回：① 向量(pgvector 余弦距离，擅长语义相似) ② BM25(词频-逆文档频率，擅长精确名词如「迪士尼」)。两路用 RRF(Reciprocal Rank Fusion) 融合排序，取长补短。"),
+        ("rerank 重排", "召回 top-k 后用百炼 qwen3.7-text-rerank 精排；网关未开放时降级关键词打分（真实现已写好，自动切换）。"),
+        ("知识库规模", "document_chunks 表存 10 篇语料、61 个分块、7 类(景点/美食/政策/季节/交通/住宿/注意事项)，全部 768 维真向量。"),
     ], 20)
+
+    # 十六、RAG 检索增强生成（下：生成+溯源+评估）
+    bullets_slide(prs, "十六、RAG 检索增强生成（2/2）", [
+        ("生成(G)", "report 节点 _generate_rag_insights() 让 LLM 基于检索原文生成「目的地深度解读」(亮点/美食/老人儿童注意事项)，有据可查、带人群感知。"),
+        ("引用溯源", "LLM 在每个具体信息后标注来源编号 [1][2]，报告末尾附「参考来源」对照表——内容来自知识库哪一篇一目了然。"),
+        ("检索质量评估", "eval_retrieval.py 跑 20 条测试集，计算 Hit@k/MRR：Hit@5=95%、MRR=0.792，系统化可复现，非口头宣称。"),
+        ("前端展示", "行程详情「知识库检索」标签页展示检索命中的 chunk(相似度分+检索方式) + AI 解读(带溯源)；Agent 流程图中调研/编排/报告三节点标 RAG 标记。"),
+        ("降级安全", "非 real 模式或检索为空或 LLM 失败时返回 None，报告照常出（只少一节），不阻塞主流程。"),
+    ], 21)
 
     # 十七、总结
     slide = blank(prs)
@@ -391,18 +398,19 @@ def main():
         ("完成度", "原始需求(多Agent-2) + 工单7(图记忆+强干预) + 人群适配 + RAG 检索增强 全部落地，验收级完整。"),
         ("数据真实性", "全链路真实数据（高德+百炼 LLM+Embedding），无假数据假智能。"),
         ("个性化能力", "老人/儿童门票按年龄分档 + 交通购票分档 + 人群过滤 + 兴趣推荐 + 餐饮规范。"),
-        ("RAG 能力", "pgvector + 语义向量 + 文旅知识库 + AI 目的地解读，检索增强生成完整闭环。"),
+        ("RAG 能力", "pgvector + 混合检索(BM25+向量) + 引用溯源 + 知识库(61 chunk) + 评估(Hit@5=95%) 完整闭环。"),
+        ("交互体验", "三种创建方式(表单/语音/对话) + 高德地图总览(按天分组+路线连线) + 11 国语言。"),
         ("性能", "四项指标全部达标且大幅超标（QPS 5.5x / 检索快500x）。"),
         ("核心能力", "断点续传 + HITL + 图记忆 + 强干预 + 安全 + 人群适配 + RAG，七维完整。"),
     ]
-    top = Inches(2.9)
+    top = Inches(2.8)
     for i, (t, c) in enumerate(pts):
-        ct = top + i * Inches(0.68)
-        add_rect(slide, Inches(0.9), ct, Inches(11.5), Inches(0.6), WHITE)
-        add_rect(slide, Inches(0.9), ct, Inches(0.08), Inches(0.6), PRIMARY)
-        add_text(slide, Inches(1.2), ct + Inches(0.06), Inches(2.0), Inches(0.5), t, size=13, color=PRIMARY_DARK, bold=True)
-        add_text(slide, Inches(3.2), ct + Inches(0.06), Inches(9.0), Inches(0.5), c, size=11, color=DARK)
-    footer(slide, 21)
+        ct = top + i * Inches(0.62)
+        add_rect(slide, Inches(0.9), ct, Inches(11.5), Inches(0.55), WHITE)
+        add_rect(slide, Inches(0.9), ct, Inches(0.08), Inches(0.55), PRIMARY)
+        add_text(slide, Inches(1.2), ct + Inches(0.05), Inches(2.0), Inches(0.5), t, size=12, color=PRIMARY_DARK, bold=True)
+        add_text(slide, Inches(3.2), ct + Inches(0.05), Inches(9.0), Inches(0.5), c, size=10.5, color=DARK)
+    footer(slide, 22)
 
     prs.save(out)
     print(f"PPT 已生成：{out}")
