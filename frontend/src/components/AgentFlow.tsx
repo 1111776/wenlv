@@ -28,6 +28,13 @@ const STATUS_LABEL: Record<string, string> = {
   skipped: "已跳过",
 };
 
+// 哪些 Agent 节点用了 RAG，以及各自做了什么（展示在流程图上）
+const RAG_NODES: Record<string, string> = {
+  web_research: "🔍 RAG 检索：从文旅知识库检索真实资料，注入调研上下文",
+  itinerary: "🔍 RAG 检索：检索景区政策/美食资料，辅助行程编排与人群适配",
+  report: "✨ RAG 生成：基于检索资料生成目的地解读（带引用溯源）",
+};
+
 // Agent 执行流程可视化（横向 Steps 风格）
 export default function AgentFlow({ agents }: { agents: any[] }) {
   if (!agents?.length) return null;
@@ -37,9 +44,10 @@ export default function AgentFlow({ agents }: { agents: any[] }) {
       {agents.map((a, i) => {
         const status = a.status || "pending";
         const icon = STATUS_ICON[status] || STATUS_ICON.pending;
+        const ragDesc = RAG_NODES[a.key];
         return (
           <div key={a.key} style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-            <Tooltip title={`${a.name} — ${STATUS_LABEL[status] || status}`}>
+            <Tooltip title={ragDesc ? `${a.name} — ${ragDesc}` : `${a.name} — ${STATUS_LABEL[status] || status}`}>
               <div style={{ textAlign: "center", width: 80 }}>
                 <div>{icon}</div>
                 <div style={{ fontSize: 13, marginTop: 6, fontWeight: status === "running" ? 600 : 400 }}>
@@ -59,6 +67,11 @@ export default function AgentFlow({ agents }: { agents: any[] }) {
                 >
                   {STATUS_LABEL[status] || status}
                 </Tag>
+                {ragDesc && (
+                  <Tag color="geekblue" style={{ marginTop: 2, fontSize: 10 }}>
+                    RAG
+                  </Tag>
+                )}
               </div>
             </Tooltip>
             {i < agents.length - 1 && (
