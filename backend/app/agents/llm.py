@@ -77,6 +77,18 @@ class LLMProvider(Protocol):
         """
         ...
 
+    async def rerank(self, query: str, documents: list[str]) -> list[float]:
+        """对候选文档做相关性重排打分，返回与 documents 等长的分数列表。
+
+        Args:
+            query: 查询文本。
+            documents: 候选文档列表。
+
+        Returns:
+            与 documents 等长的相关性分数列表（越大越相关）。
+        """
+        ...
+
 
 # --------------------------------------------------------------------------- #
 # Mock 实现：按 agent_type 返回确定夹具
@@ -125,6 +137,15 @@ class MockLLMProvider:
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Mock 向量化：确定性哈希向量（非语义，仅保证相同文本向量一致）。"""
         return [_hash_embedding(t, settings.embedding_dim) for t in texts]
+
+    async def rerank(self, query: str, documents: list[str]) -> list[float]:
+        """Mock 重排：按查询词与文档的词重叠度打分（确定性降级）。"""
+        q_terms = set(query)
+        scores = []
+        for doc in documents:
+            overlap = len(q_terms & set(doc))
+            scores.append(float(overlap) / max(len(q_terms), 1))
+        return scores
 
 
 def _extract_agent_type(messages: list[dict]) -> str:
@@ -271,6 +292,42 @@ class OpenAICompatProvider:
         except Exception as exc:
             logger.warning("embed 调用失败，降级哈希向量：%s", exc)
             return [_hash_embedding(t, settings.embedding_dim) for t in texts]
+
+    async def rerank(self, query: str, documents: list[str]) -> list[float]:
+        """百炼 rerank 重排：对候选文档按与 query 的相关性打分。
+
+        接口为 OpenAI 兼容 /rerank，返回与 documents 等长的相关性分数。
+        失败时降级为关键词重叠打分（保证系统无 rerank 也能跑）。
+        """
+        import httpx
+
+        url = f"{self.base_url.rstrip('/')}/rerank"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": settings.rerank_model,
+            "query": query,
+            "documents": documents,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
+                resp = await client.post(url, headers=headers, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+            # 兼容多种返回结构
+            results = data.get("results") or data.get("data") or []
+            if results:
+                scores = [float(r.get("relevance_score", r.get("score", 0.0))) for r in results]
+                if len(scores) == len(documents):
+                    return scores
+            logger.warning("rerank 返回数量不匹配，降级关键词打分")
+        except Exception as exc:
+            logger.warning("rerank 调用失败，降级关键词打分：%s", exc)
+        # 降级：关键词重叠打分
+        q_terms = set(query)
+        return [float(len(q_terms & set(d))) / max(len(q_terms), 1) for d in documents]
 
 
 # --------------------------------------------------------------------------- #

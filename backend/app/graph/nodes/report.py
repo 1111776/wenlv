@@ -167,12 +167,16 @@ async def _generate_rag_insights(
     if settings.llm_mode != "real" or not kb_hits:
         return None
 
-    # 把检索到的原文拼成参考材料（限制条数/长度，避免 prompt 过长）
+    # 把检索到的原文拼成参考材料（限制条数/长度，避免 prompt 过长），带编号便于引用溯源
     context_parts = []
-    for h in kb_hits[:6]:
+    ref_map: dict[str, str] = {}
+    for i, h in enumerate(kb_hits[:6], start=1):
         ctx_txt = (h.get("chunk_text") or "").strip()
-        if ctx_txt:
-            context_parts.append(f"【{h.get('category','')}·{h.get('title','')}】{ctx_txt[:300]}")
+        if not ctx_txt:
+            continue
+        ref_id = f"[{i}]"
+        ref_map[ref_id] = f"{h.get('doc_id', 'kb')}·{h.get('title', '')}"
+        context_parts.append(f"{ref_id} 【{h.get('category','')}·{h.get('title','')}】{ctx_txt[:300]}")
     if not context_parts:
         return None
     context = "\n\n".join(context_parts)
@@ -191,7 +195,9 @@ async def _generate_rag_insights(
         f"以下是从文旅知识库检索到的参考资料：\n{context}\n\n"
         "请基于上述资料，生成一段面向该人群的「目的地深度解读」，包含：\n"
         "1) 目的地亮点（2-3 条）；2) 美食推荐（1-2 条）；3) 针对老人/儿童的注意事项（如有）。\n"
-        "要求：口语化、简洁、直接基于资料（不要编造资料里没有的景点或价格）；输出纯 Markdown，不要标题。"
+        "要求：口语化、简洁、直接基于资料（不要编造资料里没有的景点或价格）。\n"
+        "重要：每提到一个具体信息，请在该句末尾标注来源编号（如[1]、[2]），表示该信息来自哪份参考资料。\n"
+        "输出纯 Markdown，不要标题。"
     )
 
     try:
@@ -203,7 +209,15 @@ async def _generate_rag_insights(
             ],
         )
         text = (result.text or "").strip()
-        return text or None
+        if not text:
+            return None
+        # 附加来源对照表，实现引用溯源
+        ref_lines = []
+        for ref_id, label in sorted(ref_map.items(), key=lambda x: int(x[0].strip("[]"))):
+            ref_lines.append(f"{ref_id} {label}")
+        if ref_lines:
+            text += "\n\n---\n**参考来源**\n" + "\n".join(f"- {r}" for r in ref_lines)
+        return text
     except Exception as exc:
         logger.warning("RAG 目的地解读生成失败：%s", exc)
         return None

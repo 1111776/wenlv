@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-v3"  # 百炼 embedding 模型
     embedding_dim: int = 768  # 向量维度（text-embedding-v3 支持 1024/768/512）
     vector_backend: str = "pgvector"  # pgvector | cosine（cosine=应用层兜底）
+    rerank_model: str = "qwen3.7-text-rerank"  # 百炼 rerank 重排模型
 
     # ------------------------------------------------------------------ #
     # 高德地图（真实数据）
