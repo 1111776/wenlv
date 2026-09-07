@@ -33,6 +33,7 @@ import { api, unwrap } from "../api/client";
 import { subscribePlan } from "../api/ws";
 import AgentFlow from "../components/AgentFlow";
 import Markdown from "../components/Markdown";
+import MapView from "../components/MapView";
 
 // 任务状态徽章
 const TASK_STATUS: Record<string, { color: string; label: string }> = {
@@ -371,6 +372,19 @@ export default function PlanDetail() {
               </Space>
             </Card>
           )}
+          {/* 总览地图：展示全部行程景点，按天分组颜色 + 可切换 */}
+          <Card
+            size="small"
+            style={{ marginBottom: 16 }}
+            title={<Typography.Text strong>📍 行程总览地图</Typography.Text>}
+          >
+            <MapView
+              days={agents.itinerary.daily_plan.map((day: any) => ({
+                day: day.day,
+                spots: [day.morning, day.afternoon, day.evening],
+              }))}
+            />
+          </Card>
           {/* 每日时间线 */}
           {agents.itinerary.daily_plan.map((day: any) => (
             <Card

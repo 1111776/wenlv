@@ -504,6 +504,7 @@ async def itinerary_node(state: TravelState) -> dict:
             "spot": poi["name"],
             "address": poi.get("address", ""),
             "type": poi.get("type", ""),
+            "location": poi.get("location"),  # (lng, lat) 经纬度，供前端地图标记
             "route": route_to_next,
             "opentime": poi.get("opentime", ""),
             "rating": poi.get("rating", ""),
