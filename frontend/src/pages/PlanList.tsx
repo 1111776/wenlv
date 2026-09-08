@@ -84,6 +84,16 @@ export default function PlanList() {
     }
   };
 
+  const onDuplicate = async (id: string) => {
+    try {
+      const data = await unwrap<any>(api.post(`/plans/${id}/duplicate`));
+      message.success("已复制为新行程");
+      navigate(`/plans/${data.plan_id}`);
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
   const columns = [
     {
       title: "需求描述",
@@ -139,10 +149,15 @@ export default function PlanList() {
     {
       title: "操作",
       key: "action",
-      width: 160,
+      width: 200,
       render: (_: any, r: any) => (
         <Space>
           <a onClick={() => navigate(`/plans/${r.id}`)}>详情</a>
+          {r.status === "completed" && (
+            <a style={{ color: "#1677ff" }} onClick={() => onDuplicate(r.id)}>
+              复制
+            </a>
+          )}
           {!["completed", "failed", "cancelled"].includes(r.status) && (
             <Popconfirm title="确认取消该行程？" onConfirm={() => onCancel(r.id)}>
               <a style={{ color: "#faad14" }}>取消</a>

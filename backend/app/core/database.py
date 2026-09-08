@@ -78,6 +78,7 @@ async def init_db() -> None:
         Intervention,
         MemoryEvent,
         ReviewRecord,
+        RouteTemplate,
         TravelPlan,
         User,
     )
@@ -90,8 +91,10 @@ async def init_db() -> None:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
 
-    # 建表完成后写入预置账号（S20 seed）
+    # 建表完成后写入预置账号（S20 seed）+ 经典线路模板
     from app.services.seed import seed_users
+    from app.services.route_seed import seed_routes
 
     async with session_scope() as db:
         await seed_users(db)
+        await seed_routes(db)

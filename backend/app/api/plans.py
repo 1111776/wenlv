@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from sqlalchemy import func, select
@@ -16,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.errors import Err
 from app.core.redis_client import get_redis, key
-from app.models import AgentTask, BudgetRecord, TravelPlan
+from app.models import AgentTask, BudgetRecord, RouteTemplate, TravelPlan
 from app.models.agent_task import TASK_STATUS
 from app.models.travel_plan import PLAN_STATUS, TERMINAL_STATUSES
 from app.schemas.common import ok
@@ -24,6 +25,7 @@ from app.schemas.plan import (
     ItineraryUpdateRequest,
     PlanChatRequest,
     PlanCreateRequest,
+    PlanFromTemplateRequest,
     PlanDetailOut,
     PlanFileOut,
     PlanListItem,
@@ -507,6 +509,263 @@ def _check_visibility(plan: TravelPlan, user: dict) -> None:
     """顾问/游客只能看自己的行程；supervisor 可看全部。"""
     if user["role"] in ("advisor", "tourist") and plan.user_id != user["id"]:
         raise Err.FORBIDDEN.to_http()
+
+
+@router.post("/{plan_id}/duplicate", status_code=201)
+async def duplicate_plan(plan_id: uuid.UUID, request: Request, db: AsyncSession = Depends(get_db)):
+    """复制行程：基于老行程复制一个「已生成」的新行程（复用，不重跑 Agent）。
+
+    复制 preferences + itinerary + report，状态直接 completed。
+    """
+    plan = await db.get(TravelPlan, plan_id)
+    if plan is None:
+        raise Err.NOT_FOUND.to_http()
+    _check_visibility(plan, request.state.user)
+
+    user_id = request.state.user["id"]
+
+    # 读老行程的 itinerary + report
+    old_tasks = (
+        await db.execute(
+            select(AgentTask).where(
+                AgentTask.plan_id == plan_id,
+                AgentTask.agent_type.in_(["itinerary", "report", "budget"]),
+            )
+        )
+    ).scalars().all()
+    old_itinerary = next((t.result for t in old_tasks if t.agent_type == "itinerary"), None)
+    old_report = next((t.result for t in old_tasks if t.agent_type == "report"), None)
+
+    # 建新行程
+    new_plan = TravelPlan(
+        user_id=user_id,
+        title=(plan.title or "") + "（复制）",
+        status=PLAN_STATUS["COMPLETED"],
+        query=plan.query,
+        preferences=plan.preferences,
+        budget_limit=plan.budget_limit,
+        total_budget=plan.total_budget,
+        workspace_path=f"workspace/{uuid.uuid4()}",
+        completed_at=datetime.now(timezone.utc),
+    )
+    db.add(new_plan)
+    await db.flush()
+
+    # 复制 agent_tasks
+    if old_itinerary:
+        db.add(
+            AgentTask(
+                plan_id=new_plan.id,
+                agent_type="itinerary",
+                order_index=101,
+                status=TASK_STATUS["COMPLETED"],
+                task_data={"title": "日程编排（复制）"},
+                result=old_itinerary,
+            )
+        )
+    if old_report:
+        db.add(
+            AgentTask(
+                plan_id=new_plan.id,
+                agent_type="report",
+                order_index=200,
+                status=TASK_STATUS["COMPLETED"],
+                task_data={"title": "报告生成（复制）"},
+                result=old_report,
+            )
+        )
+
+    # 复制预算记录
+    old_budgets = (
+        await db.execute(select(BudgetRecord).where(BudgetRecord.plan_id == plan_id))
+    ).scalars().all()
+    for b in old_budgets:
+        db.add(
+            BudgetRecord(
+                plan_id=new_plan.id,
+                category=b.category,
+                item=b.item,
+                amount=b.amount,
+            )
+        )
+
+    await add_audit(db, action="plan_duplicate", actor_id=user_id, plan_id=new_plan.id, target=str(plan_id))
+    await db.commit()
+
+    return ok({"plan_id": str(new_plan.id), "status": PLAN_STATUS["COMPLETED"]})
+
+
+@router.post("/from-template", status_code=201)
+async def create_plan_from_template(
+    body: PlanFromTemplateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """从经典线路模板创建行程（秒出，不走 8 Agent）。
+
+    读模板 → 直接生成 itinerary（daily_plan 用模板数据，门票按人群分档）
+    → 写 report → 状态直接 completed。
+    """
+    user = request.state.user
+    user_id = user["id"]
+
+    # 防抖
+    if not await lock.acquire_submit_lock(user_id):
+        raise Err.TOO_FREQUENT.to_http()
+
+    tmpl = await db.get(RouteTemplate, body.template_id)
+    if tmpl is None:
+        raise Err.NOT_FOUND.to_http()
+
+    # 出行人结构
+    adults = body.adults
+    children = body.children
+    elders = body.elders
+    children_detail = body.children_detail
+    elders_detail = body.elders_detail
+
+    # 组装 daily_plan：把模板的简洁结构转成 itinerary 需要的完整结构
+    from app.agents.ticket_pricing import ticket_prices_by_party
+
+    daily_plan = []
+    for t in tmpl.daily_plan or []:
+        def _mk_spot(name):
+            if not name:
+                return None
+            tp = ticket_prices_by_party(name, "", adults, children, elders, elders_detail, children_detail)
+            return {
+                "spot": name,
+                "address": "",
+                "type": "",
+                "location": None,
+                "opentime": "",
+                "rating": "",
+                "photo": "",
+                "ticket": tp,
+                "price": tp["total"],
+                "note": tp.get("note"),
+            }
+
+        daily_plan.append(
+            {
+                "day": t.get("day", len(daily_plan) + 1),
+                "morning": _mk_spot(t.get("morning")),
+                "afternoon": _mk_spot(t.get("afternoon")),
+                "evening": _mk_spot(t.get("evening")),
+                "meals": {
+                    "breakfast": {"name": "当地早餐", "price": 20} if t.get("meal") else None,
+                    "lunch": None,
+                    "dinner": {"name": t.get("meal"), "price": 80} if t.get("meal") else None,
+                },
+            }
+        )
+
+    # 组装 itinerary result
+    itinerary_result = {
+        "days": tmpl.days,
+        "destination": tmpl.destination,
+        "origin": body.origin or None,
+        "transport": None,
+        "daily_plan": daily_plan,
+        "route": f"{tmpl.name}",
+        "night_risk": False,
+        "poi_count": len(daily_plan) * 3,
+        "restaurant_count": len(daily_plan),
+        "kb_hits": [],
+        "data_source": "template",
+    }
+
+    # 组装 preferences
+    preferences = {
+        "origin": body.origin,
+        "destination": tmpl.destination,
+        "days": tmpl.days,
+        "budget_limit": body.budget_limit,
+        "tags": tmpl.tags,
+        "template_id": tmpl.id,
+        "template_name": tmpl.name,
+        "party": {
+            "adults": adults,
+            "children": children,
+            "elders": elders,
+            "children_detail": children_detail,
+            "elders_detail": elders_detail,
+        },
+    }
+
+    # 预算（简单估算：参考预算 × 人数）
+    from app.core.config import settings
+
+    people = adults + children + elders
+    total_budget = tmpl.budget_ref * max(people, 1)
+
+    # 建行程（直接 completed）
+    plan = TravelPlan(
+        user_id=user_id,
+        title=tmpl.name,
+        status=PLAN_STATUS["COMPLETED"],
+        query=f"经典线路：{tmpl.name}",
+        preferences=preferences,
+        budget_limit=body.budget_limit,
+        total_budget=total_budget,
+        workspace_path=f"workspace/{uuid.uuid4()}",
+        completed_at=datetime.now(timezone.utc),
+    )
+    db.add(plan)
+    await db.flush()
+
+    # 写 itinerary + report agent_task（幂等）
+    db.add(
+        AgentTask(
+            plan_id=plan.id,
+            agent_type="itinerary",
+            order_index=101,
+            status=TASK_STATUS["COMPLETED"],
+            task_data={"title": "日程编排（模板）"},
+            result=itinerary_result,
+        )
+    )
+    db.add(
+        AgentTask(
+            plan_id=plan.id,
+            agent_type="report",
+            order_index=200,
+            status=TASK_STATUS["COMPLETED"],
+            task_data={"title": "报告生成（模板）"},
+            result={"quality": "ok", "rag_insights": None},
+        )
+    )
+
+    # 写预算记录
+    db.add(
+        BudgetRecord(
+            plan_id=plan.id,
+            category="hotel",
+            item=f"住宿 {tmpl.days - 1} 晚",
+            amount=total_budget * 0.4,
+        )
+    )
+    db.add(
+        BudgetRecord(
+            plan_id=plan.id,
+            category="ticket",
+            item=f"景点门票（{people}人）",
+            amount=total_budget * 0.3,
+        )
+    )
+    db.add(
+        BudgetRecord(
+            plan_id=plan.id,
+            category="food",
+            item=f"餐饮（{people}人）",
+            amount=total_budget * 0.3,
+        )
+    )
+
+    await add_audit(db, action="plan_create_template", actor_id=user_id, plan_id=plan.id, target=tmpl.name[:128])
+    await db.commit()
+
+    return ok({"plan_id": str(plan.id), "status": PLAN_STATUS["COMPLETED"]})
 
 
 @router.post("/chat")

@@ -14,6 +14,7 @@ from app.models.graph_edge import GraphEdge
 from app.models.memory_event import MemoryEvent
 from app.models.intervention import Intervention
 from app.models.document_chunk import DocumentChunk
+from app.models.route_template import RouteTemplate
 
 __all__ = [
     "User",
@@ -27,4 +28,5 @@ __all__ = [
     "MemoryEvent",
     "Intervention",
     "DocumentChunk",
+    "RouteTemplate",
 ]

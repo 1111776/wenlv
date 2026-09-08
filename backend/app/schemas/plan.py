@@ -64,6 +64,19 @@ class PlanCreateOut(BaseModel):
     status: str
 
 
+class PlanFromTemplateRequest(BaseModel):
+    """从经典线路模板创建行程（秒出，不走 Agent）。"""
+
+    template_id: int
+    adults: int = Field(default=2, ge=1)
+    children: int = Field(default=0, ge=0)
+    elders: int = Field(default=0, ge=0)
+    budget_limit: float | None = Field(default=None, gt=0)
+    origin: str | None = None  # 出发地（可选）
+    children_detail: list[dict] = Field(default_factory=list)  # 儿童明细（年龄+身高）
+    elders_detail: list[dict] = Field(default_factory=list)  # 老人明细（年龄+性别）
+
+
 class PlanChatRequest(BaseModel):
     """对话式创建行程请求。"""
 
