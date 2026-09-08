@@ -51,7 +51,8 @@ export default function PlanNew() {
       const queryParts: string[] = [];
       if (values.origin && values.destination) queryParts.push(`从${values.origin}到${values.destination}`);
       else if (values.destination) queryParts.push(`${values.destination}游`);
-      if (values.days) queryParts.push(`${values.days}天`);
+      if (values.duration_hours) queryParts.push(`${values.duration_hours}小时`);
+      else if (values.days) queryParts.push(`${values.days}天`);
       queryParts.push(`${values.adults || 1}大${_children}小${_elders}老`);
       if (values.budget_limit) queryParts.push(`预算${values.budget_limit}`);
       if (values.tags && values.tags.length) queryParts.push(values.tags.join(" "));
@@ -61,7 +62,8 @@ export default function PlanNew() {
         query,
         origin: values.origin,
         destination: values.destination,
-        days: values.days,
+        days: values.duration_hours ? undefined : values.days,
+        duration_hours: values.duration_hours || undefined,
         budget_limit: values.budget_limit,
         tags: values.tags || [],
         ticket_purchase_mode: values.ticket_purchase_mode || null,
@@ -184,6 +186,19 @@ export default function PlanNew() {
                   <InputNumber min={1} max={30} style={{ width: "100%" }} placeholder="7" />
                 </Form.Item>
               </Col>
+            </Row>
+
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item
+                  name="duration_hours"
+                  label="时长（小时）"
+                  extra="短时规划填小时，如半天=4、3小时团建=3（填了时长就不用填天数，不住宿）"
+                >
+                  <InputNumber min={0.5} max={24} step={0.5} style={{ width: "100%" }} placeholder="如 3 小时" />
+                </Form.Item>
+              </Col>
+              <Col span={16} />
             </Row>
 
             <Row gutter={16}>

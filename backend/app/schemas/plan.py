@@ -50,6 +50,7 @@ class PlanCreateRequest(BaseModel):
     origin: str | None = None  # 出发地
     destination: str | None = None
     days: int | None = Field(default=None, ge=1)
+    duration_hours: float | None = Field(default=None, gt=0)  # 时长（小时），短时规划用（如 3 小时、半天=4小时）
     start_date: str | None = None  # 出发日期 YYYY-MM-DD
     end_date: str | None = None  # 返程日期 YYYY-MM-DD
     budget_limit: float | None = Field(default=None, gt=0)

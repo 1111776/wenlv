@@ -362,6 +362,11 @@ async def itinerary_node(state: TravelState) -> dict:
     plan_id = state["plan_id"]
     preferences = state.get("preferences", {})
     days = int(preferences.get("days") or 7)
+    duration_hours = preferences.get("duration_hours")  # 短时规划（小时）
+    # 短时模式：duration_hours 存在时，视为短时规划（半天/几小时，不住宿）
+    is_short = duration_hours is not None and duration_hours > 0
+    if is_short:
+        days = 1  # 短时也归入 1 天，但只排 1-2 个景点
     destination = preferences.get("destination") or "目的地"
     origin = preferences.get("origin") or None  # 出发地（可选）
 
@@ -477,6 +482,10 @@ async def itinerary_node(state: TravelState) -> dict:
         am = day_attractions[(cursor * 2) % n_day] if n_day else None
         pm = day_attractions[(cursor * 2 + 1) % n_day] if n_day else None
         ev = nightlife[cursor % n_night] if n_night else (day_attractions[(cursor * 2 + 2) % n_day] if n_day else None)
+        # 短时规划：只排 1 个景点（放上午），下午/晚上留空
+        if is_short:
+            pm = None
+            ev = None
         cursor += 1
         spots_per_day.append((am, pm, ev))
         if am and pm and am.get("location") and pm.get("location"):
@@ -588,6 +597,7 @@ async def itinerary_node(state: TravelState) -> dict:
 
     itinerary = {
         "days": days,
+        "duration_hours": duration_hours,  # 短时规划时长（小时）
         "destination": destination,
         "origin": origin,
         "origin_route": origin_route,  # 出发地到首站的真实路线（距离/耗时）

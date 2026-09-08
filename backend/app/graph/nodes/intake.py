@@ -23,6 +23,7 @@ _INTAKE_SCHEMA = {
         "origin": {"type": "string", "description": "出发地"},
         "destination": {"type": "string", "description": "目的地"},
         "days": {"type": "integer", "description": "行程天数"},
+        "duration_hours": {"type": "number", "description": "时长（小时），短时规划用，如半天=4小时"},
         "budget_limit": {"type": "number", "description": "预算上限"},
         "adults": {"type": "integer"},
         "children": {"type": "integer"},
@@ -138,6 +139,15 @@ def _fallback_parse(query: str) -> dict:
     m = re.search(r"(\d+)\s*(?:天|晚)", query)
     if m:
         prefs["days"] = int(m.group(1))
+    # 时长（短时规划）：半天 / N小时 / 一下午 / 一上午 / 一晚上
+    if "半天" in query:
+        prefs["duration_hours"] = 4.0  # 半天 ≈ 4 小时
+    else:
+        m = re.search(r"(\d+(?:\.\d+)?)\s*(?:个)?小时", query)
+        if m:
+            prefs["duration_hours"] = float(m.group(1))
+        elif "一下午" in query or "一上午" in query or "一晚上" in query:
+            prefs["duration_hours"] = 4.0
     # 预算：预算 15000 / 1.5万 / 1.5w
     m = re.search(r"预算\s*([0-9.]+)\s*(万|w|W|元|块)?", query)
     if m:

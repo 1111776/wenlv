@@ -117,11 +117,12 @@ async def create_plan(
     await db.flush()
 
     # 可选结构化字段写入 preferences（Intake 会覆盖/补全）
-    if body.destination or days or body.party or body.tags or body.start_date or body.origin or body.ticket_purchase_mode or body.hotel_booking_mode:
+    if body.destination or days or body.party or body.tags or body.start_date or body.origin or body.ticket_purchase_mode or body.hotel_booking_mode or body.duration_hours:
         plan.preferences = {
             "origin": body.origin,
             "destination": body.destination,
             "days": days,
+            "duration_hours": body.duration_hours,
             "start_date": body.start_date,
             "end_date": body.end_date,
             "budget_limit": body.budget_limit,

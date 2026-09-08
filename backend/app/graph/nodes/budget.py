@@ -52,16 +52,28 @@ def _party_counts(preferences: dict) -> tuple[int, int, int, list[dict], list[di
 def _build_budget_items(
     destination: str, days: int, adults: int, children: int, elders: int,
     elders_detail: list[dict] | None = None, children_detail: list[dict] | None = None,
+    duration_hours: float | None = None,
 ) -> list[dict]:
-    """预算项按成人/儿童/老人分档计费（车票/门票折扣与报告一致；餐饮按总人数）。"""
+    """预算项按成人/儿童/老人分档计费（车票/门票折扣与报告一致；餐饮按总人数）。
+
+    duration_hours 存在时为短时规划：不住宿，餐饮按小时折算。
+    """
     from app.agents.ticket_pricing import elder_ticket_discount, child_ticket_discount
 
     people = adults + children + elders
-    hotel_nights = max(days - 1, 1)  # 住宿晚数 = 天数 - 1（N 天住 N-1 晚）
-    hotel_cost = hotel_total(destination, hotel_nights)
-    # 住宿：按人数折算房间数（2人一间，向上取整）
-    rooms = max((people + 1) // 2, 1)
-    hotel_cost = hotel_cost * rooms
+    is_short = duration_hours is not None and duration_hours > 0
+
+    if is_short:
+        # 短时规划：不住宿
+        hotel_nights = 0
+        hotel_cost = 0
+        rooms = 0
+    else:
+        hotel_nights = max(days - 1, 1)  # 住宿晚数 = 天数 - 1（N 天住 N-1 晚）
+        hotel_cost = hotel_total(destination, hotel_nights)
+        # 住宿：按人数折算房间数（2人一间，向上取整）
+        rooms = max((people + 1) // 2, 1)
+        hotel_cost = hotel_cost * rooms
 
     # 往返交通：成人全价，儿童/老人按配置折扣
     traffic_base = 1000
@@ -91,6 +103,18 @@ def _build_budget_items(
 
     party_label = f"{adults}大{children}小{elders}老" if elders else f"{adults}大{children}小"
 
+    if is_short:
+        # 短时规划：门票/餐饮按小时折算，无住宿
+        ticket_ratio = duration_hours / 8.0  # 按每天 8 小时游玩时间折算
+        food_amount = int(50 * duration_hours * people)  # 短时餐饮按小时估（约 50 元/人/小时）
+        ticket_amount = int(ticket * ticket_ratio)
+        return [
+            {"category": "traffic", "item": f"交通（{party_label}）", "amount": traffic},
+            {"category": "ticket", "item": f"景点门票（{party_label}，{duration_hours}小时）", "amount": ticket_amount},
+            {"category": "food", "item": f"餐饮（{people}人，{duration_hours}小时）", "amount": food_amount},
+            {"category": "other", "item": "其他", "amount": 200 * people},
+        ]
+
     return [
         {"category": "traffic", "item": f"往返交通（{party_label}）", "amount": traffic},
         {"category": "hotel", "item": f"住宿 {hotel_nights} 晚（{rooms}间）", "amount": hotel_cost},
@@ -105,11 +129,12 @@ async def budget_node(state: TravelState) -> dict:
     plan_id = state["plan_id"]
     preferences = state.get("preferences", {})
     days = preferences.get("days", 7)
+    duration_hours = preferences.get("duration_hours")
     destination = preferences.get("destination") or "目的地"
     budget_limit = preferences.get("budget_limit") or 15000
     adults, children, elders, elders_detail, children_detail = _party_counts(preferences)
 
-    items = _build_budget_items(destination, days, adults, children, elders, elders_detail, children_detail)
+    items = _build_budget_items(destination, days, adults, children, elders, elders_detail, children_detail, duration_hours)
     total = sum(i["amount"] for i in items)
     over_ratio = (total - budget_limit) / budget_limit if budget_limit else 0.0
 

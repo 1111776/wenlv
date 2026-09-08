@@ -361,7 +361,11 @@ def _build_report_markdown(
     if origin:
         lines.append(f"| 出发地 | **{origin}** |")
     lines.append(f"| 目的地 | **{destination}** |")
-    lines.append(f"| 行程天数 | {days} 天 |")
+    duration_hours = prefs.get("duration_hours")
+    if duration_hours:
+        lines.append(f"| 行程时长 | **{duration_hours} 小时**（短时规划，不住宿） |")
+    else:
+        lines.append(f"| 行程天数 | {days} 天 |")
     if party:
         p = party
         parts = [f"{p.get('adults','-')} 大 {p.get('children',0)} 小"]
