@@ -15,11 +15,14 @@ router = APIRouter(prefix="/teambuild", tags=["teambuild"])
 
 
 class TeamBuildRequest(BaseModel):
-    team_type: str = Field(..., description="团建类型：聚餐/桌游轰趴/烧烤/拓展/郊游/会议")
+    team_types: list[str] = Field(default_factory=list, description="团建类型（多选）：聚餐/桌游轰趴/烧烤/拓展/郊游/会议")
     people: int = Field(..., ge=1, le=500)
     duration_hours: float = Field(..., gt=0, le=12)
     budget: float = Field(default=0, ge=0)  # 总预算，0 表示不限
     outdoor: bool = Field(default=False)  # 是否偏好户外
+    location: str | None = Field(default=None, description="地点（如昌平、朝阳区）")
+    date: str | None = Field(default=None, description="日期（YYYY-MM-DD）")
+    preferences: str | None = Field(default=None, description="偏好（自由填，如：想找有包间的、要能停车）")
 
 
 # 6 类团建模板：场地 + 活动 + 餐饮 + 人均参考价
@@ -83,20 +86,47 @@ _TEAM_TEMPLATES = {
 
 @router.post("/plan")
 async def plan_team_build(body: TeamBuildRequest, request: Request):
-    """团建规划：按类型匹配模板，生成方案 + 人均预算明细。"""
-    tmpl = _TEAM_TEMPLATES.get(body.team_type)
-    if tmpl is None:
-        from app.core.errors import Err
+    """团建规划：按类型匹配模板（支持多选），生成方案 + 人均预算明细。"""
+    from app.core.errors import Err
 
+    # 多选类型：至少一个
+    types = body.team_types or []
+    if not types:
         raise Err.INVALID_PARAM.to_http()
+
+    tmpls = []
+    for t in types:
+        tmpl = _TEAM_TEMPLATES.get(t)
+        if tmpl is None:
+            raise Err.INVALID_PARAM.to_http()
+        tmpls.append(tmpl)
 
     people = body.people
     duration = body.duration_hours
     budget = body.budget
 
+    # 合并多个模板：场地/活动/餐饮去重合并，预算取平均价
+    venues = []
+    activities = []
+    foods = []
+    venue_per = 0
+    food_per = 0
+    for tmpl in tmpls:
+        venues.extend(tmpl["venues"])
+        activities.extend(tmpl["activities"])
+        foods.append(tmpl["food"])
+        venue_per += tmpl["venue_per_person"]
+        food_per += tmpl["food_per_person"]
+    # 去重保留顺序
+    venues = list(dict.fromkeys(venues))
+    activities = list(dict.fromkeys(activities))
+    # 多选时场地费/餐费取平均（各类型分摊）
+    venue_per = venue_per / len(tmpls)
+    food_per = food_per / len(tmpls)
+
     # 预算计算
-    venue_cost = tmpl["venue_per_person"] * people
-    food_cost = tmpl["food_per_person"] * people
+    venue_cost = int(venue_per * people)
+    food_cost = int(food_per * people)
     activity_cost = 0  # 大部分活动含在场地费里
     total = venue_cost + food_cost + activity_cost
     per_person = total / people if people else 0
@@ -105,30 +135,42 @@ async def plan_team_build(body: TeamBuildRequest, request: Request):
     over = budget > 0 and total > budget
     over_ratio = ((total - budget) / budget) if (budget > 0 and over) else 0.0
 
-    # 时间安排（按小时排）
+    # 时间安排（按小时排，多类型时主活动合并展示）
     schedule = []
     schedule.append(f"开始（0:00-0:15）到场集合、签到")
     schedule.append(f"破冰热身（0:15-0:30）")
     mid = duration / 2
-    schedule.append(f"主活动（0:30-{mid:.1f} 小时）{tmpl['activities'][0]} 等")
-    schedule.append(f"餐饮（{mid:.1f}-{mid+0.75:.1f} 小时）{tmpl['food']}")
+    main_acts = "、".join(activities[:3])
+    schedule.append(f"主活动（0:30-{mid:.1f} 小时）{main_acts} 等")
+    food_str = " + ".join(foods) if len(foods) > 1 else foods[0]
+    schedule.append(f"餐饮（{mid:.1f}-{mid+0.75:.1f} 小时）{food_str}")
     schedule.append(f"自由活动/收尾（剩余时间）合影留念、返程")
 
     # 户外郊游/烧烤建议
     tips = []
-    if body.team_type in ("烧烤", "郊游") and not body.outdoor:
+    if any(t in ("烧烤", "郊游") for t in types) and not body.outdoor:
         tips.append("户外活动，建议提前查看天气，备好防晒/雨具")
     if people > 50:
         tips.append("人数较多，建议提前预订场地并分组管理")
+    if body.location:
+        tips.append(f"地点：{body.location}，建议选择该区域内的场地")
+    if body.date:
+        tips.append(f"日期：{body.date}，建议提前预订")
+
+    label = " + ".join(tmpl["label"] for tmpl in tmpls)
 
     return ok({
-        "team_type": tmpl["label"],
+        "team_type": label,
+        "team_types": types,
         "people": people,
         "duration_hours": duration,
-        "venues": tmpl["venues"],
-        "activities": tmpl["activities"],
-        "food": tmpl["food"],
-        "note": tmpl["note"],
+        "location": body.location,
+        "date": body.date,
+        "preferences": body.preferences,
+        "venues": venues,
+        "activities": activities,
+        "food": food_str,
+        "note": "多类型组合团建：" + label,
         "schedule": schedule,
         "budget": {
             "venue": venue_cost,

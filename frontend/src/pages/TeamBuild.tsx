@@ -3,10 +3,12 @@ import {
   Button,
   Card,
   Col,
+  DatePicker,
   Descriptions,
+  Input,
   InputNumber,
   message,
-  Radio,
+  Select,
   Row,
   Space,
   Tag,
@@ -17,16 +19,20 @@ import {
 } from "antd";
 import { ArrowLeftOutlined, TeamOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
+import dayjs from "dayjs";
 import { api, unwrap } from "../api/client";
 
 // 团建规划：独立于旅游的模式，核心是「场地+活动+餐饮+人均预算」
 export default function TeamBuild() {
   const navigate = useNavigate();
-  const [teamType, setTeamType] = useState("聚餐");
+  const [teamTypes, setTeamTypes] = useState<string[]>(["聚餐"]);
   const [people, setPeople] = useState(30);
   const [duration, setDuration] = useState(3);
   const [budget, setBudget] = useState<number | null>(5000);
   const [outdoor, setOutdoor] = useState(false);
+  const [location, setLocation] = useState("");
+  const [date, setDate] = useState<string>("");
+  const [preferences, setPreferences] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any | null>(null);
 
@@ -44,11 +50,14 @@ export default function TeamBuild() {
     try {
       const data = await unwrap<any>(
         api.post("/teambuild/plan", {
-          team_type: teamType,
+          team_types: teamTypes,
           people,
           duration_hours: duration,
           budget: budget || 0,
           outdoor,
+          location: location || null,
+          date: date || null,
+          preferences: preferences || null,
         })
       );
       setResult(data);
@@ -76,16 +85,15 @@ export default function TeamBuild() {
       <Card title="填写团建需求" style={{ marginBottom: 16 }}>
         <Row gutter={[16, 16]}>
           <Col span={24}>
-            <Typography.Text strong>团建类型：</Typography.Text>
-            <Radio.Group value={teamType} onChange={(e) => setTeamType(e.target.value)} style={{ marginTop: 8 }}>
-              <Space wrap>
-                {types.map((t) => (
-                  <Radio.Button key={t.value} value={t.value}>
-                    {t.label}
-                  </Radio.Button>
-                ))}
-              </Space>
-            </Radio.Group>
+            <Typography.Text strong>团建类型（可多选）：</Typography.Text>
+            <Select
+              mode="multiple"
+              value={teamTypes}
+              onChange={setTeamTypes}
+              options={types}
+              style={{ width: "100%", marginTop: 8 }}
+              placeholder="选择一种或多种团建类型"
+            />
           </Col>
           <Col span={8}>
             <Typography.Text strong>人数：</Typography.Text>
@@ -98,6 +106,23 @@ export default function TeamBuild() {
           <Col span={8}>
             <Typography.Text strong>总预算（元，可空）：</Typography.Text>
             <InputNumber min={0} max={1000000} value={budget} onChange={(v) => setBudget(v)} placeholder="不限" style={{ width: "100%", marginTop: 8 }} />
+          </Col>
+          <Col span={8}>
+            <Typography.Text strong>地点：</Typography.Text>
+            <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="如：昌平 / 朝阳区" style={{ marginTop: 8 }} />
+          </Col>
+          <Col span={8}>
+            <Typography.Text strong>日期：</Typography.Text>
+            <DatePicker
+              value={date ? dayjs(date) : null}
+              onChange={(_, dateStr) => setDate(dateStr as string)}
+              style={{ width: "100%", marginTop: 8 }}
+              placeholder="选择日期（可选）"
+            />
+          </Col>
+          <Col span={8}>
+            <Typography.Text strong>偏好（自由填）：</Typography.Text>
+            <Input value={preferences} onChange={(e) => setPreferences(e.target.value)} placeholder="如：要有包间、能停车" style={{ marginTop: 8 }} />
           </Col>
           <Col span={24}>
             <Space>
