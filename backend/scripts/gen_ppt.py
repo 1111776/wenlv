@@ -34,7 +34,7 @@ SLIDE_W = Inches(13.333)  # 16:9
 SLIDE_H = Inches(7.5)
 FONT = "微软雅黑"
 
-TOTAL = 22
+TOTAL = 23
 
 
 def new_prs():
@@ -136,7 +136,7 @@ def toc(prs):
         "05  项目亮点", "06  系统架构", "07  8 个 Agent 详解", "08  核心技术实现",
         "09  数据源与数据模型", "10  API 与前端", "11  部署与启动", "12  完整流程演示",
         "13  测试与验收", "14  设计决策", "15  个性化人群适配", "16  RAG 检索增强生成",
-        "17  总结",
+        "17  团建与短时规划", "18  总结",
     ]
     half = 9
     for i, it in enumerate(items):
@@ -312,12 +312,12 @@ def main():
 
     # 十、API与前端
     bullets_slide(prs, "十、API 与前端", [
-        ("API(5组20+接口)", "认证(register含角色/login) / 行程(create/list/detail/status/agents/plan-file/report/cancel/delete/PATCH itinerary) / 审核 / 记忆(工单7) / 运维。"),
+        ("API(7组)", "认证 / 行程(含 chat 对话式 + from-template 模板 + duplicate 复制) / 审核 / 记忆(工单7) / 经典线路 / 智能问答 / 团建规划。"),
         ("记忆接口(工单7)", "intervene(强干预) / rollback(回滚) / graph(子图) / search(检索) / interventions(历史)。"),
-        ("前端 10 页面", "登录注册 / 工作台 / 行程列表 / 行程详情 / 审核台 / 记忆图谱 / 系统说明 / 语音创建 / 对话式创建。"),
+        ("前端 12 页面", "登录注册 / 工作台 / 行程列表 / 行程详情 / 审核台 / 记忆图谱(可视化) / 系统说明 / 语音创建 / 对话式创建 / 经典线路 / 智能问答 / 团建规划。"),
         ("行程详情亮点", "出发地交通+票价 + 行程总览地图(高德，景点标记+按天分组+路线连线+切换) + 知识库检索(RAG) + 调研结果(真实POI) + 三餐餐饮 + 门票按年龄分档 + 优待备注 + 编辑行程。"),
-        ("创建表单亮点", "成人关系 + 老人信息(年龄+性别+状态) + 儿童信息(年龄+身高+占座) + 学生学历 + 购票/酒店方式。"),
-        ("三种创建方式", "新建表单 + 语音创建(浏览器语音识别) + 对话式创建(AI 主动引导，像 DeepSeek 一样聊天)。"),
+        ("四种创建方式", "新建表单 + 语音创建(浏览器语音识别) + 对话式创建(AI 引导) + 经典线路模板(秒出)。"),
+        ("短时规划", "支持精确到小时（时长字段），半天/几小时团建式短途游，不住宿。"),
     ], 14)
 
     # 十一、部署与启动
@@ -389,28 +389,37 @@ def main():
         ("降级安全", "非 real 模式或检索为空或 LLM 失败时返回 None，报告照常出（只少一节），不阻塞主流程。"),
     ], 21)
 
+    # 十六点五、团建规划 + 短时规划
+    bullets_slide(prs, "团建规划与短时规划（独立模式）", [
+        ("团建规划", "独立于旅游的模式，核心是「场地+活动+餐饮+人均预算」，不是景点/门票。"),
+        ("6 类团建类型", "聚餐 / 桌游轰趴 / 烧烤 / 拓展 / 郊游 / 会议，每种预置场地+活动+餐饮模板。"),
+        ("输入与输出", "输入：类型+人数+时长+预算；输出：推荐场地 + 活动项目 + 餐饮方案 + 时间安排 + 人均预算明细。"),
+        ("短时规划", "支持精确到小时（时长字段），半天/几小时短途游，不住宿，门票餐饮按小时折算。"),
+        ("与旅游的区别", "旅游=景点调研+门票分档+住宿；团建=场地匹配+活动+聚餐分摊，两者业务模型完全不同。"),
+    ], 22)
+
     # 十七、总结
     slide = blank(prs)
     set_bg(slide, LIGHT)
     add_rect(slide, 0, Inches(2.1), Inches(0.25), Inches(1.6), PRIMARY)
     add_text(slide, Inches(0.9), Inches(2.1), Inches(11), Inches(1.0), "总结", size=30, color=DARK, bold=True)
     pts = [
-        ("完成度", "原始需求(多Agent-2) + 工单7(图记忆+强干预) + 人群适配 + RAG 检索增强 全部落地，验收级完整。"),
+        ("完成度", "原始需求(多Agent-2) + 工单7(图记忆+强干预) + 人群适配 + RAG 检索增强 + 团建/短时规划 全部落地。"),
         ("数据真实性", "全链路真实数据（高德+百炼 LLM+Embedding），无假数据假智能。"),
         ("个性化能力", "老人/儿童门票按年龄分档 + 交通购票分档 + 人群过滤 + 兴趣推荐 + 餐饮规范。"),
-        ("RAG 能力", "pgvector + 混合检索(BM25+向量) + 引用溯源 + 知识库(61 chunk) + 评估(Hit@5=95%) 完整闭环。"),
-        ("交互体验", "三种创建方式(表单/语音/对话) + 高德地图总览(按天分组+路线连线) + 11 国语言。"),
+        ("RAG 能力", "pgvector + 混合检索(BM25+向量) + 引用溯源 + 多轮对话 + 知识库(125 chunk) + 评估(Hit@5=95%) 完整闭环。"),
+        ("业务覆盖", "旅游(4种创建方式) + 团建(6类) + 智能问答 + 经典线路模板 + 行程复制复用，覆盖旅行社全场景。"),
         ("性能", "四项指标全部达标且大幅超标（QPS 5.5x / 检索快500x）。"),
-        ("核心能力", "断点续传 + HITL + 图记忆 + 强干预 + 安全 + 人群适配 + RAG，七维完整。"),
+        ("核心能力", "断点续传 + HITL + 图记忆 + 强干预 + 安全 + 人群适配 + RAG + 团建，八维完整。"),
     ]
     top = Inches(2.8)
     for i, (t, c) in enumerate(pts):
-        ct = top + i * Inches(0.62)
-        add_rect(slide, Inches(0.9), ct, Inches(11.5), Inches(0.55), WHITE)
-        add_rect(slide, Inches(0.9), ct, Inches(0.08), Inches(0.55), PRIMARY)
-        add_text(slide, Inches(1.2), ct + Inches(0.05), Inches(2.0), Inches(0.5), t, size=12, color=PRIMARY_DARK, bold=True)
-        add_text(slide, Inches(3.2), ct + Inches(0.05), Inches(9.0), Inches(0.5), c, size=10.5, color=DARK)
-    footer(slide, 22)
+        ct = top + i * Inches(0.60)
+        add_rect(slide, Inches(0.9), ct, Inches(11.5), Inches(0.53), WHITE)
+        add_rect(slide, Inches(0.9), ct, Inches(0.08), Inches(0.53), PRIMARY)
+        add_text(slide, Inches(1.2), ct + Inches(0.05), Inches(2.0), Inches(0.5), t, size=11.5, color=PRIMARY_DARK, bold=True)
+        add_text(slide, Inches(3.2), ct + Inches(0.05), Inches(9.0), Inches(0.5), c, size=10, color=DARK)
+    footer(slide, 23)
 
     prs.save(out)
     print(f"PPT 已生成：{out}")
