@@ -12,6 +12,7 @@ import {
   RobotOutlined,
   ThunderboltOutlined,
   QuestionCircleOutlined,
+  TeamOutlined,
   ReadOutlined,
   ApartmentOutlined,
   GlobalOutlined,
@@ -47,6 +48,7 @@ export default function AppLayout() {
           { key: "/plans", icon: <UnorderedListOutlined />, label: t("planList") },
           { key: "/routes", icon: <ThunderboltOutlined />, label: t("routes") },
           { key: "/qa", icon: <QuestionCircleOutlined />, label: t("qa") },
+          { key: "/teambuild", icon: <TeamOutlined />, label: t("teamBuild") },
           { key: "/plans/new", icon: <PlusCircleOutlined />, label: t("newPlan") },
           { key: "/plans/voice", icon: <AudioOutlined />, label: t("voicePlan") },
           { key: "/plans/chat", icon: <RobotOutlined />, label: t("chatPlan") },
@@ -90,6 +92,7 @@ export default function AppLayout() {
     if (p.startsWith("/plans/chat")) return "/plans/chat";
     if (p.startsWith("/routes")) return "/routes";
     if (p.startsWith("/qa")) return "/qa";
+    if (p.startsWith("/teambuild")) return "/teambuild";
     if (p.startsWith("/plans/")) return "/plans";
     if (p.startsWith("/reviews")) return "/reviews";
     if (p.startsWith("/memory")) return "/memory";

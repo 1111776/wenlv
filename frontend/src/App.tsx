@@ -8,6 +8,7 @@ import PlanVoice from "./pages/PlanVoice";
 import PlanChat from "./pages/PlanChat";
 import RoutesPage from "./pages/Routes";
 import QA from "./pages/QA";
+import TeamBuild from "./pages/TeamBuild";
 import PlanDetail from "./pages/PlanDetail";
 import ReviewBoard from "./pages/ReviewBoard";
 import MemoryGraph from "./pages/MemoryGraph";
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/plans" element={<PlanList />} />
         <Route path="/routes" element={<RoutesPage />} />
         <Route path="/qa" element={<QA />} />
+        <Route path="/teambuild" element={<TeamBuild />} />
         <Route path="/plans/new" element={<PlanNew />} />
         <Route path="/plans/voice" element={<PlanVoice />} />
         <Route path="/plans/chat" element={<PlanChat />} />

@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api import auth, health, memory, plans, qa, reviews, routes, ws
+from app.api import auth, health, memory, plans, qa, reviews, routes, team_build, ws
 from app.core.config import settings
 from app.core.database import init_db
 from app.core.errors import E
@@ -106,6 +106,7 @@ app.include_router(reviews.router, prefix="/api")
 app.include_router(memory.router, prefix="/api")
 app.include_router(routes.router, prefix="/api")
 app.include_router(qa.router, prefix="/api")
+app.include_router(team_build.router, prefix="/api")
 app.include_router(health.router)
 app.include_router(ws.router)
 
