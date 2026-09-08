@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -15,6 +15,7 @@ import {
   Typography,
 } from "antd";
 import { SearchOutlined, ReloadOutlined, ApiOutlined } from "@ant-design/icons";
+import { Graph } from "@antv/g6";
 import { api, unwrap } from "../api/client";
 import { useAuth } from "../store/auth";
 
@@ -24,7 +25,57 @@ const NODE_CLASS_LABEL: Record<string, { label: string; color: string }> = {
   code_graph: { label: "代码图", color: "purple" },
 };
 
-// 记忆图谱页：实体卡片 + 搜索 + 干预（supervisor）+ 干预历史
+// 实体类型 → 中文（归一化：把 LLM 抽出的碎片类型归到统一中文标签）
+const TYPE_LABEL: Record<string, string> = {
+  User: "用户",
+  Food: "食物",
+  Attraction: "景点",
+  City: "城市",
+  Location: "目的地",
+  Destination: "目的地",
+  Place: "地点",
+  Preference: "偏好",
+  Interest: "偏好",
+  Theme: "偏好",
+  Constraint: "约束",
+  Allergy: "过敏原",
+  Activity: "活动",
+  TravelStyle: "出行风格",
+  Group: "同行人",
+  Accommodation: "住宿",
+};
+
+// 类型 → 颜色（按语义大类分组，相同大类同色）
+const TYPE_COLOR: Record<string, string> = {
+  User: "#fa8c16",        // 橙色：用户（核心）
+  Food: "#f5222d",        // 红色：食物/过敏原
+  Allergy: "#f5222d",
+  Location: "#1677ff",    // 蓝色：目的地
+  Destination: "#1677ff",
+  City: "#1677ff",
+  Place: "#1677ff",
+  Attraction: "#52c41a",  // 绿色：景点/活动
+  Activity: "#52c41a",
+  Preference: "#722ed1",  // 紫色：偏好/风格
+  Interest: "#722ed1",
+  Theme: "#722ed1",
+  TravelStyle: "#722ed1",
+  Constraint: "#eb2f96",  // 粉色：约束
+  Group: "#13c2c2",       // 青色：同行人
+  Accommodation: "#13c2c2",
+};
+
+// 关系 → 中文
+const RELATION_LABEL: Record<string, string> = {
+  HAS_ALLERGY: "过敏",
+  PREFERS: "偏好",
+  PLANS_VISIT: "想去",
+  LOCATED_IN: "位于",
+  HATES: "不喜欢",
+  LIKES: "喜欢",
+};
+
+// 记忆图谱页：实体卡片 + 可视化知识图谱 + 搜索 + 干预（supervisor）+ 干预历史
 export default function MemoryGraph() {
   const { role } = useAuth();
   const [nodes, setNodes] = useState<any[]>([]);
@@ -35,6 +86,8 @@ export default function MemoryGraph() {
   const [loading, setLoading] = useState(false);
   const [interveneOpen, setInterveneOpen] = useState(false);
   const [interveneForm, setInterveneForm] = useState({ entityKey: "", entityType: "Attraction", patch: "{}", reason: "" });
+  const graphContainerRef = useRef<HTMLDivElement>(null);
+  const graphRef = useRef<any>(null);
 
   const load = async () => {
     setLoading(true);
@@ -56,6 +109,74 @@ export default function MemoryGraph() {
   useEffect(() => {
     load();
   }, []);
+
+  // 渲染可视化知识图谱（G6）
+  useEffect(() => {
+    if (!graphContainerRef.current || nodes.length === 0) return;
+
+    // 清洗 key：去掉解析产生的脏前缀（如「天上海」→「上海」）
+    const cleanKey = (key: string) => {
+      if (!key) return key;
+      return key.replace(/^天/, "");
+    };
+
+    // 组装 G6 数据（中文标签，按语义大类配色）
+    const g6Nodes = nodes.map((n) => {
+      const color = TYPE_COLOR[n.type] || "#8c8c8c";
+      const label = `${TYPE_LABEL[n.type] || n.type}:${cleanKey(n.key)}`;
+      return {
+        id: String(n.id),
+        label,
+        style: { fill: color, stroke: color },
+        labelCfg: { style: { fontSize: 12, fill: "#333" } },
+      };
+    });
+    const g6Edges = edges.map((e) => ({
+      source: String(e.src_id),
+      target: String(e.dst_id),
+      label: RELATION_LABEL[e.relation] || e.relation,
+      labelCfg: { style: { fontSize: 11, fill: "#8c8c8c" } },
+    }));
+
+    if (graphRef.current) {
+      graphRef.current.destroy();
+      graphRef.current = null;
+    }
+
+    const graph = new Graph({
+      container: graphContainerRef.current,
+      width: graphContainerRef.current.clientWidth,
+      height: 520,
+      modes: {
+        default: ["drag-canvas", "zoom-canvas", "drag-node"],
+      },
+      layout: {
+        type: "force",
+        preventOverlap: true,
+        linkDistance: 150,
+        nodeStrength: -120,
+        nodeSize: 40,
+      },
+      defaultNode: {
+        type: "circle",
+        size: 26,
+      },
+      defaultEdge: {
+        type: "line",
+        style: { endArrow: true, stroke: "#d9d9d9", lineWidth: 1 },
+      },
+    });
+    graph.data({ nodes: g6Nodes, edges: g6Edges });
+    graph.render();
+    graphRef.current = graph;
+
+    return () => {
+      if (graphRef.current) {
+        graphRef.current.destroy();
+        graphRef.current = null;
+      }
+    };
+  }, [nodes, edges]);
 
   const onSearch = async () => {
     if (!searchKey.trim()) return;
@@ -143,35 +264,27 @@ export default function MemoryGraph() {
         }
       >
         <Typography.Paragraph type="secondary">
-          跨系统共享图记忆：实体节点 {nodes.length} 个，关系边 {edges.length} 条
+          跨系统共享图记忆：实体节点 {nodes.length} 个，关系边 {edges.length} 条（拖拽节点、滚轮缩放）
         </Typography.Paragraph>
 
-        {nodes.length === 0 ? (
-          <Empty description="暂无记忆实体" style={{ padding: 40 }} />
+        {/* 图例 */}
+        <div style={{ marginBottom: 12, display: "flex", flexWrap: "wrap", gap: 16 }}>
+          <span style={{ fontSize: 12 }}><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#fa8c16", marginRight: 4 }} />用户</span>
+          <span style={{ fontSize: 12 }}><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#1677ff", marginRight: 4 }} />目的地/城市</span>
+          <span style={{ fontSize: 12 }}><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#52c41a", marginRight: 4 }} />景点/活动</span>
+          <span style={{ fontSize: 12 }}><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#722ed1", marginRight: 4 }} />偏好/风格</span>
+          <span style={{ fontSize: 12 }}><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#f5222d", marginRight: 4 }} />食物/过敏</span>
+          <span style={{ fontSize: 12 }}><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#eb2f96", marginRight: 4 }} />约束</span>
+        </div>
+
+        {/* 可视化知识图谱 */}
+        {nodes.length > 0 ? (
+          <div
+            ref={graphContainerRef}
+            style={{ width: "100%", height: 520, border: "1px solid #f0f0f0", borderRadius: 8 }}
+          />
         ) : (
-          <Row gutter={[12, 12]}>
-            {nodes.map((n) => {
-              const cls = NODE_CLASS_LABEL[n.node_class] || { label: n.node_class, color: "default" };
-              return (
-                <Col span={6} key={n.id}>
-                  <Card size="small" hoverable>
-                    <Space direction="vertical" size={4}>
-                      <Space>
-                        <Tag color={cls.color}>{cls.label}</Tag>
-                        <Tag>{n.type}</Tag>
-                      </Space>
-                      <Typography.Text strong>{n.key}</Typography.Text>
-                      {n.properties && Object.keys(n.properties).length > 0 && (
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          {JSON.stringify(n.properties)}
-                        </Typography.Text>
-                      )}
-                    </Space>
-                  </Card>
-                </Col>
-              );
-            })}
-          </Row>
+          <Empty description="暂无记忆实体" style={{ padding: 40 }} />
         )}
       </Card>
 

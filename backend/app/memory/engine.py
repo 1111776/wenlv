@@ -158,25 +158,68 @@ async def _llm_extract_triples(text: str, owner_user_id: uuid.UUID | None = None
         return []
 
     triples = structured.get("triples") or []
-    # 规范化 + 过滤非法项
+    # 规范化 + 过滤非法项 + 类型归一化
     clean: list[dict] = []
+    seen: set[str] = set()
     for t in triples:
         if not isinstance(t, dict):
             continue
         if not all(k in t for k in ("src_type", "src_key", "dst_type", "dst_key", "relation")):
             continue
+        dst_type = _normalize_type(str(t["dst_type"]))
+        dst_key = str(t["dst_key"]).strip().lstrip("天")  # 清理「天上海」脏前缀
+        if not dst_key:
+            continue
+        src_type = _normalize_type(str(t["src_type"]))
+        src_key = str(t["src_key"]).strip()
+        relation = str(t["relation"]).upper()
+        # 去重：同一 (src_type,src_key,relation,dst_type,dst_key) 只保留一次
+        dedup_key = f"{src_type}|{src_key}|{relation}|{dst_type}|{dst_key}"
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
         clean.append(
             {
-                "src_type": str(t["src_type"]),
-                "src_key": str(t["src_key"]),
-                "dst_type": str(t["dst_type"]),
-                "dst_key": str(t["dst_key"]),
-                "relation": str(t["relation"]),
+                "src_type": src_type,
+                "src_key": src_key,
+                "dst_type": dst_type,
+                "dst_key": dst_key,
+                "relation": relation,
                 "node_class": t.get("node_class", "chat_memory"),
                 "properties": t.get("properties") or {},
             }
         )
     return clean
+
+
+def _normalize_type(t: str) -> str:
+    """把 LLM 抽出的碎片类型归一化到少量规范类型。"""
+    t = (t or "").strip()
+    # 目的地/城市/地点 → Location
+    if t in ("Location", "Destination", "City", "Place", "Address"):
+        return "Location"
+    # 偏好/兴趣/主题/风格 → Preference
+    if t in ("Preference", "Interest", "Theme", "TravelStyle", "Style", "Like"):
+        return "Preference"
+    # 活动/景点 → Attraction
+    if t in ("Activity", "Attraction", "Scenic", "Spot"):
+        return "Attraction"
+    # 约束 → Constraint
+    if t in ("Constraint", "Restriction"):
+        return "Constraint"
+    # 食物/过敏 → Food
+    if t in ("Food", "Allergy", "Allergen", "Dish"):
+        return "Food"
+    # 用户 → User
+    if t in ("User", "Person", "Traveler"):
+        return "User"
+    # 住宿 → Hotel
+    if t in ("Accommodation", "Hotel", "Lodging"):
+        return "Hotel"
+    # 同行人 → Group
+    if t in ("Group", "Party", "Family"):
+        return "Group"
+    return t
 
 
 async def extract_triples(text: str, owner_user_id: uuid.UUID | None = None) -> list[dict]:

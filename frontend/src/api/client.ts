@@ -5,7 +5,7 @@ import { useAuth } from "../store/auth";
 // 统一 axios 实例：自动带 token，统一解包 {code, message, data}
 export const api = axios.create({
   baseURL: "/api",
-  timeout: 15000,
+  timeout: 60000,  // 60s：问答/对话式创建等 LLM 接口可能较慢，15s 会超时
 });
 
 api.interceptors.request.use((config) => {
