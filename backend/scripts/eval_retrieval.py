@@ -1,4 +1,4 @@
-"""检索质量评估：对知识库检索跑测试集，计算 Hit@k / Recall@k / MRR。
+"""检索质量评估：对知识库检索跑测试集，计算 Hit@k / MRR。
 
 用法：
     cd backend && python scripts/eval_retrieval.py
@@ -11,28 +11,70 @@ import asyncio
 from app.memory.kb_retrieve import search_kb
 
 # 测试集：query -> 期望命中的 doc_id（标准答案）
-# 覆盖 7 类语料 + 精确名词 + 语义模糊 + 政策类
+# 覆盖全部 24 篇语料：精确实体 + 政策类 + 语义换问法（非字面匹配）
 TEST_SET: list[tuple[str, str]] = [
-    ("老人门票免票政策", "ticket_policy"),
-    ("儿童门票半价规则", "ticket_policy"),
-    ("迪士尼儿童票怎么买", "attractions_more"),
+    # 景点
     ("故宫门票多少钱", "attractions"),
+    ("迪士尼儿童票怎么买", "attractions_more"),
+    ("颐和园值得去吗", "attractions_3"),
+    ("上海外滩夜景", "night_attractions"),
+    ("古镇夜游推荐", "night_attractions"),
+    ("成都串串香好吃吗", "food_3"),
+    # 美食
     ("云南过桥米线", "food"),
     ("广州早茶吃什么", "food"),
     ("重庆火锅辣吗", "food_more"),
     ("武汉热干面", "food_more"),
+    ("西安回民街", "food_street"),
+    ("夜市有什么好吃的", "food_street"),
+    # 景区政策
+    ("老人门票免票政策", "ticket_policy"),
+    ("儿童门票半价规则", "ticket_policy"),
+    ("景区观光车免票吗", "ticket_policy"),
+    ("老人免票要什么证件", "ticket_policy"),
+    ("景区门票怎么预约", "ticket_booking"),
+    ("门票能退吗", "ticket_booking"),
+    ("学生证半价要原件吗", "ticket_booking"),
+    # 交通
     ("高铁儿童免票标准", "transport"),
     ("飞机婴儿票价格", "transport"),
     ("学生票高铁能用吗", "transport"),
+    ("高铁站提前多久到", "transport_station"),
+    ("充电宝能带上飞机吗", "transport_station"),
+    ("航班延误怎么赔偿", "transport_station"),
+    # 住宿
+    ("带老人住宿注意什么", "hotel"),
+    ("带儿童住宿选什么酒店", "hotel"),
+    ("家庭房怎么选", "hotel_room"),
+    ("酒店取消政策", "hotel_room"),
+    ("押金什么时候退", "hotel_room"),
+    # 注意事项
     ("高原反应老人注意什么", "travel_tips"),
     ("带老人出行注意事项", "travel_tips"),
     ("海岛旅行防晒", "travel_tips"),
+    ("亲子出行要带什么", "travel_tips_family"),
+    ("孩子走散怎么办", "travel_tips_family"),
+    ("雨天爬山注意什么", "weather_tips"),
+    ("高温天怎么防中暑", "weather_tips"),
+    ("冬季东北穿什么衣服", "weather_tips"),
+    # 季节/节假日
     ("冬季滑雪温泉推荐", "seasons_more"),
     ("夏季避暑去哪里", "seasons"),
-    ("带老人住宿注意什么", "hotel"),
-    ("带儿童住宿选什么酒店", "hotel"),
-    ("景区观光车免票吗", "ticket_policy"),
-    ("老人免票要什么证件", "ticket_policy"),
+    ("春节适合去哪玩", "season_holiday"),
+    # 城市/通用/问答
+    ("北京旅游攻略", "cities_guide"),
+    ("第一次旅行要准备什么", "general_travel"),
+    ("旅游被坑怎么投诉", "travel_qa"),
+    # 拍照
+    ("拍照怎么出片", "photo_spots"),
+    ("日落前拍照好看吗", "photo_spots"),
+    # 语义换问法（与文档无字面重叠，考察向量检索）
+    ("七十岁以上长者进景区收不收钱", "ticket_policy"),
+    ("网上订的票不想去了能退吗", "ticket_booking"),
+    ("行李箱超重了怎么办", "transport_station"),
+    ("房间有烟味可以要求换吗", "hotel_room"),
+    ("山顶温度比市区低多少", "weather_tips"),
+    ("一个人旅行安全吗", "travel_tips"),
 ]
 
 
