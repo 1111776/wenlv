@@ -35,6 +35,14 @@ import AgentFlow from "../components/AgentFlow";
 import Markdown from "../components/Markdown";
 import MapView from "../components/MapView";
 
+// 检索路径标签颜色（vector=向量召回 bm25=关键词召回 hybrid=双路命中 rerank=精排）
+const RETRIEVAL_COLORS: Record<string, string> = {
+  vector: "purple",
+  bm25: "green",
+  hybrid: "geekblue",
+  rerank: "orange",
+};
+
 // 任务状态徽章
 const TASK_STATUS: Record<string, { color: string; label: string }> = {
   pending: { color: "default", label: "待执行" },
@@ -544,12 +552,21 @@ export default function PlanDetail() {
                     <Space style={{ marginBottom: 4 }} wrap>
                       <Tag color="blue">{h.category || "未分类"}</Tag>
                       <Typography.Text strong>{h.title}</Typography.Text>
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        相似度 {(h.score * 100).toFixed(1)}%
-                      </Typography.Text>
+                      {h.retrieval === "bm25" ? (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          BM25 分 {(h.score ?? 0).toFixed(1)}
+                        </Typography.Text>
+                      ) : (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          相似度 {((h.score ?? 0) * 100).toFixed(1)}%
+                        </Typography.Text>
+                      )}
                       {h.retrieval && (
-                        <Tag color={h.retrieval === "bm25" ? "green" : "purple"} style={{ fontSize: 11 }}>
-                          {h.retrieval}
+                        <Tag
+                          color={RETRIEVAL_COLORS[h.retrieval] || "default"}
+                          style={{ fontSize: 11 }}
+                        >
+                          {h.retrieval === "hybrid" ? "hybrid（向量+关键词）" : h.retrieval}
                         </Tag>
                       )}
                     </Space>

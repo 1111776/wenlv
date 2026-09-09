@@ -1,6 +1,6 @@
 """智能文旅问答路由（RAG 检索增强问答）。
 
-- POST /api/qa：用户提问 → search_kb 混合检索知识库 → 拼 prompt → LLM 回答
+- POST /api/qa：用户提问 → （多轮时先改写查询）→ search_kb 混合检索知识库 → 拼 prompt → LLM 回答
   返回 {answer, sources}，sources 为引用的知识库来源。
 
 复用已有的 search_kb（混合检索+rerank）、llm.complete、引用溯源，几乎零新代码。
@@ -30,19 +30,54 @@ async def ask_qa(body: QARequest, request: Request):
     from app.memory.engine import retrieve as memory_retrieve
 
     query = body.message.strip()
+    history = body.history or []
 
-    # 1. 检索知识库（混合检索 + rerank）
-    hits = await search_kb(query, top_k=5)
+    # 拼对话历史（只取最近几轮，避免 prompt 过长）
+    history_str = ""
+    if history:
+        recent = history[-6:]
+        history_str = "\n".join(
+            f"{'用户' if h.get('role') == 'user' else '助手'}：{h.get('content', '')}"
+            for h in recent
+            if h.get("content")
+        )
+
+    # 0. 多轮追问改写：「那儿童呢」「价格呢」这类指代追问直接检索是检不到的，
+    #    先结合对话历史改写成独立完整的问题再去检索（改写失败退回原问题）
+    search_query = query
+    if history_str and settings.llm_mode == "real":
+        try:
+            rw = await get_llm().complete([
+                {
+                    "role": "system",
+                    "content": (
+                        "你是查询改写器。把用户带指代/省略的追问，结合对话历史改写成一句独立、完整、"
+                        "可直接用于知识库检索的问题。只输出改写后的问题本身，不要解释、不要引号。"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"【对话历史】\n{history_str}\n\n【用户追问】{query}\n\n改写后的完整问题：",
+                },
+            ])
+            rewritten = (rw.text or "").strip().splitlines()[0].strip().strip('"“”')
+            if rewritten:
+                search_query = rewritten
+        except Exception:
+            search_query = query
+
+    # 1. 检索知识库（混合检索 + rerank，用改写后的问题）
+    hits = await search_kb(search_query, top_k=5)
 
     # 1.5 检索图记忆（长期记忆：用户历史约束/偏好/过敏）
     user_id = request.state.user.get("id")
     memories = []
     try:
-        memories = await memory_retrieve(query, user_id=user_id, top_k=5)
+        memories = await memory_retrieve(search_query, user_id=user_id, top_k=5)
     except Exception:
         memories = []  # 记忆检索失败不阻塞
 
-    # 2. 拼检索到的资料（带编号，供引用溯源）
+    # 2. 拼检索到的资料（带编号，供引用溯源；chunk 本身 ≤400 字，不截断丢信息）
     context_parts = []
     ref_map: dict[str, str] = {}
     for i, h in enumerate(hits, start=1):
@@ -51,7 +86,7 @@ async def ask_qa(body: QARequest, request: Request):
             continue
         ref_id = f"[{i}]"
         ref_map[ref_id] = f"{h.get('doc_id', 'kb')}·{h.get('title', '')}"
-        context_parts.append(f"{ref_id} 【{h.get('category','')}·{h.get('title','')}】{txt[:300]}")
+        context_parts.append(f"{ref_id} 【{h.get('category','')}·{h.get('title','')}】{txt[:400]}")
     context = "\n\n".join(context_parts)
 
     # 拼图记忆（用户个性化约束）
@@ -72,18 +107,6 @@ async def ask_qa(body: QARequest, request: Request):
             "answer": "抱歉，当前知识库中没有检索到相关内容。请换个问法试试，例如「老人去云南要注意什么」「迪士尼儿童票怎么买」。",
             "sources": [],
         })
-
-    # 多轮对话：把历史上下文拼进 prompt，让 AI 能理解追问/指代
-    history = body.history or []
-    history_str = ""
-    if history:
-        # 只取最近几轮，避免 prompt 过长
-        recent = history[-6:]
-        history_str = "\n".join(
-            f"{'用户' if h.get('role') == 'user' else '助手'}：{h.get('content', '')}"
-            for h in recent
-            if h.get("content")
-        )
 
     prompt = (
         f"用户提问：{query}\n\n"

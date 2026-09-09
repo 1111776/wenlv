@@ -297,7 +297,8 @@ class OpenAICompatProvider:
         """百炼 rerank 重排：对候选文档按与 query 的相关性打分。
 
         接口为 OpenAI 兼容 /rerank，返回与 documents 等长的相关性分数。
-        失败时降级为关键词重叠打分（保证系统无 rerank 也能跑）。
+        失败时抛出异常，由调用方降级（kb_retrieve 退回 RRF 融合分——
+        语义+关键词融合排序，比关键词重叠降级更合理，不会把语义命中的正主压下去）。
         """
         import httpx
 
@@ -311,23 +312,16 @@ class OpenAICompatProvider:
             "query": query,
             "documents": documents,
         }
-        try:
-            async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
-                resp = await client.post(url, headers=headers, json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-            # 兼容多种返回结构
-            results = data.get("results") or data.get("data") or []
-            if results:
-                scores = [float(r.get("relevance_score", r.get("score", 0.0))) for r in results]
-                if len(scores) == len(documents):
-                    return scores
-            logger.warning("rerank 返回数量不匹配，降级关键词打分")
-        except Exception as exc:
-            logger.warning("rerank 调用失败，降级关键词打分：%s", exc)
-        # 降级：关键词重叠打分
-        q_terms = set(query)
-        return [float(len(q_terms & set(d))) / max(len(q_terms), 1) for d in documents]
+        async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+        # 兼容多种返回结构
+        results = data.get("results") or data.get("data") or []
+        scores = [float(r.get("relevance_score", r.get("score", 0.0))) for r in results]
+        if len(scores) != len(documents):
+            raise ValueError(f"rerank 返回数量不匹配：{len(scores)} != {len(documents)}")
+        return scores
 
 
 # --------------------------------------------------------------------------- #
