@@ -21,6 +21,12 @@ from app.models import DocumentChunk
 
 logger = get_logger(__name__)
 
+# rerank 短路：网关对 rerank 模型返回永久性错误（401/403/404/422，如模型未部署）后，
+# 进程内不再重复发注定失败的 HTTP 请求（一次行程要检索十几次，每次白等 0.5~1s），
+# 直接走 RRF 融合分降级。超时/网络抖动等瞬时错误不短路，仍按次降级。
+_rerank_disabled = False
+_RERANK_DISABLE_STATUS = {401, 403, 404, 422}
+
 
 # --------------------------------------------------------------------------- #
 # BM25 关键词检索（纯内存，chunk 量级小，够用）
@@ -193,9 +199,10 @@ async def search_kb(
     # 3. RRF 融合
     fused = _rrf_fusion(vector_ranked, bm25_ranked)
 
-    # 4. rerank 精排
+    # 4. rerank 精排（网关永久性不可用时短路，直接用 RRF 融合分）
+    global _rerank_disabled
     candidates = fused[: max(top_k * 3, 10)]
-    if use_rerank and candidates:
+    if use_rerank and candidates and not _rerank_disabled:
         try:
             from app.agents.llm import get_llm
 
@@ -206,7 +213,12 @@ async def search_kb(
                 item["retrieval"] = "rerank"
             candidates.sort(key=lambda x: x["score"], reverse=True)
         except Exception as exc:
-            logger.warning("rerank 失败，用 RRF 融合分：%s", exc)
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status in _RERANK_DISABLE_STATUS:
+                _rerank_disabled = True
+                logger.warning("rerank 端点不可用（HTTP %s），进程内改用 RRF 融合分，不再重试", status)
+            else:
+                logger.warning("rerank 失败，用 RRF 融合分：%s", exc)
 
     return candidates[:top_k]
 

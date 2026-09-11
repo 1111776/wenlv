@@ -2,8 +2,10 @@
 
 用高德真实数据编排行程：
 - 读取 Web Research 节点通过高德 POI 搜索收集的真实景点；
+- 估算每个景点的游玩时长（大型景区/半天/1-2 小时三档），按时长预算装填：
+  大景点独占一天，中小景点组合成天，绝不在同一天硬塞多个大景点；
 - 用高德路径规划计算相邻景点间的真实驾车距离与耗时（并发，加速）；
-- 按天生成上午/下午/晚上三段行程，附真实路线数据；
+- 按天生成上午/下午/晚上三段行程（空槽位允许为 None），附真实路线数据；
 - night_risk 由 hitl_demo 开关控制（演示 HITL 用，真实数据下默认不触发）。
 """
 
@@ -86,7 +88,7 @@ _NIGHTLIFE_KEYWORDS = [
     "KTV", "ktv", "酒吧", "酒馆", "夜店", "电竞", "网吧", "网咖", "网盟",
     "足浴", "洗浴", "桑拿", "电影院", "影院", "剧场", "演艺", "歌厅", "舞厅",
     "密室", "桌游", "清吧", "夜总会", "迪厅", "俱乐部", "Livehouse", "livehouse",
-    "小酒馆", "烤吧", "餐吧",
+    "小酒馆", "烤吧", "餐吧", "会所", "棋牌", "喜剧", "娱乐场所",
 ]
 
 # 家庭/老人出行不适宜的夜生活场所（有儿童或老人时直接剔除，只保留影院/剧场等全家友好型）
@@ -144,6 +146,28 @@ _SHOPPING_KEYWORDS = [
     "奥莱", "奥特莱斯", "免税店", "超市", "卖场",
 ]
 
+# 大型景区（通常要一整天）：只认**名称**里的词。不能按 type 判断——
+# 高德的 type 是分类层级（如故宫 type 含「风景名胜」只是"属于景点大类"），
+# 所有公园/广场都带「风景名胜;公园广场;公园」，拿它当规模信号会把小公园全判成一天
+_FULL_DAY_NAME_KEYWORDS = [
+    "风景名胜区", "风景区", "旅游景区", "旅游区", "森林公园", "湿地公园", "地质公园",
+    "国家公园", "自然保护区", "古镇", "古城", "度假区", "影视城", "滑雪", "草原",
+    "峡谷", "瀑布", "石窟", "海岛", "群岛", "野生动物园", "乐园", "主题公园",
+    "欢乐谷", "迪士尼", "长隆", "名山", "丹霞", "梯田", "盐湖",
+]
+
+# 中型景点（约半天）：名称或类型中出现
+_HALF_DAY_KEYWORDS = [
+    "博物馆", "动物园", "植物园", "水族馆", "海洋馆", "科技馆", "游乐园",
+    "美术馆", "展览馆", "溶洞", "温泉", "皇陵", "陵园",
+]
+
+# 适合夜间游玩的小景点（没有夜生活场所时，晚上排这类而不是硬塞白天大景点）
+_EVENING_SPOT_KEYWORDS = [
+    "夜市", "夜景", "夜游", "老街", "步行街", "历史街区", "广场",
+    "滨江", "滨河", "外滩", "灯光秀", "酒吧街", "水街", "巷", "古街",
+]
+
 # 餐次关键词：把餐厅归类到早餐/正餐/晚餐（避免早餐排火锅、午餐排烧烤）
 _BREAKFAST_KEYWORDS = [
     "早餐", "包子", "粥", "豆浆", "油条", "馒头", "面包", "烘焙", "汉堡",
@@ -158,9 +182,31 @@ _DINNER_KEYWORDS = [
 
 
 def _is_nightlife(poi: dict) -> bool:
-    """判断 POI 是否夜生活/娱乐场所（KTV/酒吧/网吧/影院等），只适合晚上。"""
-    text = f"{poi.get('name', '')} {poi.get('type', '')}"
+    """判断 POI 是否夜生活/娱乐场所（KTV/酒吧/网吧/影院等），只适合晚上。
+
+    先挡掉住宿类：高德酒店的 type 可能带「酒吧」子类（如带酒吧的豪华酒店），
+    不挡会把酒店当夜生活排进行程。
+    """
+    typ = poi.get("type", "")
+    if "住宿服务" in typ or "宾馆" in typ:
+        return False
+    text = f"{poi.get('name', '')} {typ}"
     return any(k in text for k in _NIGHTLIFE_KEYWORDS)
+
+
+# 名字像餐饮店的 POI 不进景点池（三餐已由餐厅池覆盖，
+# 不然「萍姐火锅」这类店名会混进行程当景点）
+_FOOD_JOINT_KEYWORDS = ["火锅", "烧烤", "烤鱼", "烤肉", "串串", "小龙虾", "大排档", "美食城", "小吃店"]
+
+
+def _is_food_joint(poi: dict) -> bool:
+    return any(k in poi.get("name", "") for k in _FOOD_JOINT_KEYWORDS)
+
+
+def _is_night_market(poi: dict) -> bool:
+    """夜市类 POI（keyword=夜市 的调研结果或名字带夜市）：只排晚上——
+    白天摊位基本没出摊，排进上午/下午体验很差。"""
+    return poi.get("_keyword") == "夜市" or "夜市" in poi.get("name", "")
 
 
 def _is_family_unfriendly_nightlife(poi: dict) -> bool:
@@ -209,6 +255,45 @@ def _is_shopping(poi: dict) -> bool:
     """判断 POI 是否购物/商场类（不进每日观光行程）。"""
     text = f"{poi.get('name', '')} {poi.get('type', '')}"
     return any(k in text for k in _SHOPPING_KEYWORDS)
+
+
+# 游玩时长档位（小时）：用于按天做时长预算装填
+_H_FULL, _H_HALF, _H_SMALL = 6.0, 3.5, 1.5
+
+
+def _visit_hours(poi: dict) -> float:
+    """估算景点游玩时长（小时）：大型景区一整天、中型半天、其余 1-2 小时。
+
+    判定顺序（关键：type 是分类层级，不是规模信号——
+    所有公园 type 都含「风景名胜」，不能拿它判大小）：
+    1. **名称**含大景区词（古镇/森林公园/名山…）→ 一整天
+    2. 名称或 type 含中型词（博物馆/动物园…）→ 半天
+    3. 名称是「公园」→ 半天（城市公园逛完也要 2-3 小时）
+    4. type 含「世界遗产」「国家级景点」→ 一整天（名称没线索时用等级兜底）
+    5. 广场类 → 1-2 小时；其余默认 1-2 小时
+    """
+    name = poi.get("name", "")
+    typ = poi.get("type", "")
+    if any(k in name for k in _FULL_DAY_NAME_KEYWORDS):
+        return _H_FULL
+    if any(k in name for k in _HALF_DAY_KEYWORDS) or any(k in typ for k in _HALF_DAY_KEYWORDS):
+        return _H_HALF
+    if "公园" in name:
+        return _H_HALF
+    if "世界遗产" in typ or "国家级景点" in typ:
+        return _H_FULL
+    if "城市广场" in typ or "广场" in name:
+        return _H_SMALL
+    return _H_SMALL
+
+
+def _is_evening_suitable(poi: dict) -> bool:
+    """判断景点是否适合夜间游玩（夜市/老街/广场/滨江等），供晚上槽位兜底。
+
+    只看名称：type 含「公园广场」分类词，按 type 匹配会把所有公园
+    都当夜间景点（公园晚上早关门，不适合兜底）。
+    """
+    return any(k in poi.get("name", "") for k in _EVENING_SPOT_KEYWORDS)
 
 
 def _rating(poi: dict) -> float:
@@ -425,13 +510,19 @@ async def itinerary_node(state: TravelState) -> dict:
         logger.warning("知识库检索失败（忽略）：%s", exc)
 
     # 分离：夜生活/娱乐场所（KTV/酒吧/网吧/影院等）只排晚上，不占白天景点位；
-    # 购物/商场类不进观光行程；同一景点（如某公园的北园/南园）去重保留评分最高。
+    # 夜市类只排晚上（白天没出摊）；餐饮店名不进景点池；购物/商场类不进观光行程；
+    # 同一景点（如某公园的北园/南园）去重保留评分最高。
     day_attractions: list[dict] = []
     nightlife: list[dict] = []
+    night_markets: list[dict] = []
     seen_day: dict[str, dict] = {}
     for p in attractions:
-        if _is_shopping(p):
-            continue  # 商场不进每日行程
+        if _is_shopping(p) or _is_food_joint(p):
+            continue  # 商场/餐饮店不进每日行程
+        if _is_night_market(p):
+            if p.get("name") not in night_markets:
+                night_markets.append(p)  # 只排晚上，顺序即调研质量序
+            continue
         if _is_nightlife(p):
             # 家庭/老人出行：剔除网吧/酒吧/KTV 等不适宜场所，只留影院/剧场等
             if family_mode and _is_family_unfriendly_nightlife(p):
@@ -458,40 +549,115 @@ async def itinerary_node(state: TravelState) -> dict:
         if filtered:  # 过滤后仍有景点才采用，避免过度过滤导致空行程
             day_attractions = filtered
 
-    # 兴趣推荐 + 人群适配：兴趣匹配、亲子/老人友好景点排前面
+    # 兴趣推荐 + 人群适配：兴趣匹配、亲子/老人友好景点排前面；
+    # 分数相同时高分 POI 优先（好景点装进前几天的黄金位）
     day_attractions = sorted(
         day_attractions,
-        key=lambda p: _tag_score(p, tags) + _party_friendly_score(p, _elders > 0, _children > 0),
+        key=lambda p: (
+            _tag_score(p, tags) + _party_friendly_score(p, _elders > 0, _children > 0),
+            _rating(p),
+        ),
         reverse=True,
     )
 
+    # 地理聚类排序：按经纬度网格（约 2km 一格）分簇，同簇景点排在一起再装填，
+    # 让同一天的景点顺路（避免上午在城西、下午跑到城东）。
+    # 簇的先后按簇内最高分景点定（day_attractions 已按分数降序，取首见顺序即可），
+    # 缺坐标的景点兜底排在最后。
+    _CELL_DEG = 0.02  # 约等于 2km
+
+    def _cell(poi: dict):
+        loc = poi.get("location")
+        if not loc or loc[0] is None or loc[1] is None:
+            return None
+        return (round(loc[0] / _CELL_DEG), round(loc[1] / _CELL_DEG))
+
+    cell_map: dict[tuple, list[dict]] = {}
+    geo_ordered: list[dict] = []
+    for p in day_attractions:
+        c = _cell(p)
+        if c is None:
+            continue
+        bucket = cell_map.get(c)
+        if bucket is None:
+            bucket = []
+            cell_map[c] = bucket
+            geo_ordered.append(bucket)
+        bucket.append(p)
+    geo_ordered = [p for bucket in geo_ordered for p in bucket]
+    geo_ordered += [p for p in day_attractions if _cell(p) is None]
+    day_attractions = geo_ordered
+
     logger.info(
-        "白天景点 %d 个、夜生活 %d 个", len(day_attractions), len(nightlife),
+        "白天景点 %d 个、夜市 %d 个、夜生活 %d 个",
+        len(day_attractions), len(night_markets), len(nightlife),
     )
 
-    # 按天分配景点（每天 3 段：上午/下午用白天景点，晚上优先夜生活）
-    daily_plan: list[dict] = []
-    cursor = 0
+    # 按天分配景点（时长预算贪心装填）：先估算每个景点游玩时长，
+    # 大景点独占一天，中小景点按预算组合；当天装不下就开新的一天，
+    # 景点用完即止——旧逻辑按槽位取模轮转，会把故宫、颐和园这样的
+    # 大景点一天塞好几个，景点不够时还隔天重复出现。
+    DAY_HOURS = 8.0  # 白天观光预算（小时，含景点间交通）
+    if is_short:
+        day_attractions = day_attractions[:1]  # 短时规划只排 1 个景点
+
+    packed: list[list[dict]] = [[] for _ in range(days)]
+    used_hours = [0.0] * days
+    day_idx = 0
+    for p in day_attractions:
+        if day_idx >= days:
+            break
+        h = _visit_hours(p)
+        # 当天装不下 / 已有 2 个白天景点（结构上限）→ 开新的一天
+        if packed[day_idx] and (used_hours[day_idx] + h > DAY_HOURS or len(packed[day_idx]) >= 2):
+            day_idx += 1
+            if day_idx >= days:
+                break
+        packed[day_idx].append(p)
+        used_hours[day_idx] += h
+        if h >= _H_FULL:
+            day_idx += 1  # 大景点独占一天，后续直接开新天
+    packed_days = sum(1 for d in packed if d)
+    logger.info(
+        "景点装填：%d 个景点装入 %d/%d 天（丢弃 %d 个不硬塞）",
+        len(day_attractions), packed_days, days, len(day_attractions) - sum(len(d) for d in packed),
+    )
+
+    # 晚上槽位三级兜底：夜市（游客夜间首选）→ 夜生活场所 →
+    # 「未入编白天行程、适合夜间」的小景点（老街/广场/滨江等），都没有就留空
+    # （不硬塞白天大景点）
+    evening_seq = night_markets + nightlife
+    packed_names = {p.get("name") for day in packed for p in day}
+    evening_pool = [
+        p for p in day_attractions
+        if p.get("name") not in packed_names and _is_evening_suitable(p)
+    ]
+    ev_used: set[str] = set()
+
+    spots_per_day: list[tuple] = []
+    for d in range(days):
+        items = packed[d] if d < len(packed) else []
+        am = items[0] if len(items) >= 1 else None
+        pm = items[1] if len(items) >= 2 else None
+        if is_short:
+            ev = None
+        elif d < len(evening_seq):
+            ev = evening_seq[d]
+        else:
+            ev = next((p for p in evening_pool if p.get("name") not in ev_used), None)
+            if ev:
+                ev_used.add(ev["name"])
+        spots_per_day.append((am, pm, ev))
 
     # 先收集所有需要路径规划的点对，一次性并发计算（加速）
-    route_pairs: list[tuple[int, int, tuple, tuple]] = []
-    spots_per_day: list[tuple] = []
-    n_day = len(day_attractions)
-    n_night = len(nightlife)
-    for day in range(1, days + 1):
-        am = day_attractions[(cursor * 2) % n_day] if n_day else None
-        pm = day_attractions[(cursor * 2 + 1) % n_day] if n_day else None
-        ev = nightlife[cursor % n_night] if n_night else (day_attractions[(cursor * 2 + 2) % n_day] if n_day else None)
-        # 短时规划：只排 1 个景点（放上午），下午/晚上留空
-        if is_short:
-            pm = None
-            ev = None
-        cursor += 1
-        spots_per_day.append((am, pm, ev))
+    route_pairs: list[tuple[int, str, tuple, tuple]] = []
+    for day, (am, pm, ev) in enumerate(spots_per_day):
         if am and pm and am.get("location") and pm.get("location"):
-            route_pairs.append((day - 1, "am_pm", am["location"], pm["location"]))
+            route_pairs.append((day, "am_pm", am["location"], pm["location"]))
+        elif am and ev and am.get("location") and ev.get("location"):
+            route_pairs.append((day, "am_pm", am["location"], ev["location"]))  # 下午为空时上午直连晚上
         if pm and ev and pm.get("location") and ev.get("location"):
-            route_pairs.append((day - 1, "pm_ev", pm["location"], ev["location"]))
+            route_pairs.append((day, "pm_ev", pm["location"], ev["location"]))
 
     # 并发计算所有路径（asyncio.gather）
     route_results = await asyncio.gather(
@@ -506,6 +672,8 @@ async def itinerary_node(state: TravelState) -> dict:
     from app.agents.ticket_pricing import meal_price, ticket_prices_by_party
 
     def _fmt_spot(poi, route_to_next):
+        if poi is None:
+            return None  # 短时规划/景点不足时该槽位允许为空，不能崩整个行程
         tp = ticket_prices_by_party(
             poi["name"], poi.get("type", ""), _adults, _children, _elders, _elders_detail, _children_detail
         )
@@ -536,6 +704,7 @@ async def itinerary_node(state: TravelState) -> dict:
 
     # 跨天已用餐厅集合：保证每天/每餐尽量不重复（全用过才回退）
     used_meals: set[str] = set()
+    daily_plan: list[dict] = []
 
     for day_idx, (am, pm, ev) in enumerate(spots_per_day):
         am_pm_route = route_map.get((day_idx, "am_pm"))
@@ -564,7 +733,7 @@ async def itinerary_node(state: TravelState) -> dict:
         )
 
     # 路线串联（取每天首站）
-    route_names = [d["morning"]["spot"] for d in daily_plan if d["morning"]["spot"]]
+    route_names = [d["morning"]["spot"] for d in daily_plan if d["morning"] and d["morning"]["spot"]]
     route = f"{destination} → " + " → ".join(route_names) if route_names else destination
 
     # 出发地 → 目的地 路线（若填了出发地，用高德算 origin → 首个景点）

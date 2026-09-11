@@ -25,7 +25,8 @@ logger = get_logger(__name__)
 _RESEARCH_DIMENSIONS = [
     {"keyword": "景点", "amap_types": "110000", "title": "核心景点调研"},
     {"keyword": "公园", "amap_types": "110100", "title": "公园绿地调研"},
-    {"keyword": "博物馆", "amap_types": "080300", "title": "博物馆文化调研"},
+    # 注意：080300 是「娱乐场所」（酒吧/网吧都归这），博物馆应为 140100
+    {"keyword": "博物馆", "amap_types": "140100", "title": "博物馆文化调研"},
     {"keyword": "酒店", "amap_types": "100000", "title": "住宿酒店调研"},
     {"keyword": "餐厅", "amap_types": "050000", "title": "餐饮美食调研"},
     {"keyword": "早餐", "amap_types": "050000", "title": "早餐小吃调研"},
@@ -33,6 +34,9 @@ _RESEARCH_DIMENSIONS = [
     {"keyword": "购物中心", "amap_types": "060100", "title": "购物商圈调研"},
     {"keyword": "地铁站", "amap_types": "150500", "title": "交通出行调研"},
     {"keyword": "风景名胜", "amap_types": "110200", "title": "风景名胜调研"},
+    # 夜市没有专属 typecode（散在 050100/060700/061000 等），不限类型靠关键词过滤；
+    # 这类 POI 是晚上槽位的主要兜底（不然小城市夜间行程为空）
+    {"keyword": "夜市", "amap_types": "", "title": "夜市夜游调研"},
 ]
 
 

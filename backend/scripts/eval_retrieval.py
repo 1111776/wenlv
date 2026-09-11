@@ -11,7 +11,7 @@ import asyncio
 from app.memory.kb_retrieve import search_kb
 
 # 测试集：query -> 期望命中的 doc_id（标准答案）
-# 覆盖全部 24 篇语料：精确实体 + 政策类 + 语义换问法（非字面匹配）
+# 覆盖全部 30 篇语料：精确实体 + 政策类 + 语义换问法（非字面匹配）
 TEST_SET: list[tuple[str, str]] = [
     # 景点
     ("故宫门票多少钱", "attractions"),
@@ -63,6 +63,9 @@ TEST_SET: list[tuple[str, str]] = [
     ("春节适合去哪玩", "season_holiday"),
     # 城市/通用/问答
     ("北京旅游攻略", "cities_guide"),
+    ("天津有什么好玩的", "cities_guide"),
+    ("九寨沟旅游攻略", "cities_guide"),
+    ("呼伦贝尔草原怎么玩", "cities_guide"),
     ("第一次旅行要准备什么", "general_travel"),
     ("旅游被坑怎么投诉", "travel_qa"),
     # 拍照
@@ -75,6 +78,10 @@ TEST_SET: list[tuple[str, str]] = [
     ("房间有烟味可以要求换吗", "hotel_room"),
     ("山顶温度比市区低多少", "weather_tips"),
     ("一个人旅行安全吗", "travel_tips"),
+    # 全国地级市扩充后跨文件抽查
+    ("泉州旅游攻略", "cities_huadong"),
+    ("遵义有什么好玩的", "cities_xinan"),
+    ("喀什古城值得去吗", "cities_xibei"),
 ]
 
 

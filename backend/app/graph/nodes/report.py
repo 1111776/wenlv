@@ -498,11 +498,26 @@ def _build_report_markdown(
             m = day["morning"]
             a = day["afternoon"]
             e = day["evening"]
-            lines.append(f"| 🌅 上午 | **{m.get('spot','-')}** | {m.get('address','')} | {_spot_price(m)} | {_short_time(m.get('opentime',''))} | {_route_str(m.get('route'))} |")
-            lines.append(f"| ☀️ 下午 | **{a.get('spot','-')}** | {a.get('address','')} | {_spot_price(a)} | {_short_time(a.get('opentime',''))} | {_route_str(a.get('route'))} |")
-            lines.append(f"| 🌙 晚上 | **{e.get('spot','-')}** | {e.get('address','')} | {_spot_price(e)} | {_short_time(e.get('opentime',''))} | — |")
+
+            def _spot_row(icon: str, spot, last: bool = False) -> str | None:
+                """单时段行；时段为空（短时规划下午/晚上留空）时返回 None 不渲染。"""
+                if spot is None:
+                    return None
+                route = "—" if last else _route_str(spot.get("route"))
+                return (
+                    f"| {icon} | **{spot.get('spot','-')}** | {spot.get('address','')} | "
+                    f"{_spot_price(spot)} | {_short_time(spot.get('opentime',''))} | {route} |"
+                )
+
+            rows = [_spot_row("🌅 上午", m), _spot_row("☀️ 下午", a), _spot_row("🌙 晚上", e, last=True)]
+            if any(rows):
+                lines.extend(r for r in rows if r)
+            else:
+                lines.append("| — | — | — | — | — | — |")
             # 优待备注：有儿童/老人时标注该人群的免/半价政策
             for spot in (m, a, e):
+                if spot is None:
+                    continue
                 note = spot.get("note")
                 if note:
                     lines.append(f"> 🎫 {spot.get('spot','')}：{note}")

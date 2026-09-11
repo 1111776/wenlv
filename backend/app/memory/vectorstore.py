@@ -136,7 +136,9 @@ async def ingest_dir(dir_path: str | Path, category_map: dict[str, str] | None =
         logger.warning("知识库目录无有效语料：%s", base)
         return 0
 
-    texts = [c[3] for c in all_chunks]
+    # 向量化文本 = 标题 + 正文：城市小节的标题即城市名（如「遵义」），
+    # 查询「遵义有什么好玩的」靠标题强匹配才能压过正文中出现同名的其他语料
+    texts = [f"{c[1]}\n{c[3]}" for c in all_chunks]
     embs = await _embed(texts)
 
     async with session_scope() as db:
